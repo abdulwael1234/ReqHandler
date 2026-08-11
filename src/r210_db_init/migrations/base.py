@@ -9,8 +9,8 @@ Each migration:
 See: LLD-05 §5.1 (Base Migration Class)
 """
 
-from abc import ABC, abstractmethod
 import sqlite3
+from abc import ABC, abstractmethod
 
 
 class Migration(ABC):
