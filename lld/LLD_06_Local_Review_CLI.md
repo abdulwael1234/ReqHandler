@@ -5,10 +5,10 @@
 | Field              | Value                                                    |
 |--------------------|----------------------------------------------------------|
 | **Document ID**    | R210-LLD-06                                              |
-| **Version**        | 1.1                                                      |
-| **Date**           | 2026-08-10                                               |
+| **Version**        | 1.2                                                      |
+| **Date**           | 2026-08-11                                               |
 | **Component**      | Local Review CLI                                         |
-| **Source Documents**| R210-SRS-001 v5.0, R210-HLD-001 v3.0                   |
+| **Source Documents**| R210-SRS-001 v5.2, R210-HLD-001 v3.1                   |
 | **Status**         | Draft                                                    |
 
 ---
@@ -198,8 +198,9 @@ class ReviewToolBridge:
 
     This bridge calls the SAME handler functions registered in R210McpServer
     (LLD-02 §9), ensuring identical validation, transactions, and error behavior.
-    The only difference: caller is always "review" (not "extraction"), so
-    approval transitions are permitted (SRS-082a).
+    The server is constructed with adapter_mode="review" (LLD-02 §9), so
+    approval transitions are structurally permitted (SRS-082a) and query
+    results return full records (no Gemini projection).
 
     It does NOT provide:
     - Create operations (extraction is done by Gemini, not the reviewer)
@@ -207,21 +208,27 @@ class ReviewToolBridge:
     """
 
     def __init__(self, db_path: str):
-        self._server = R210McpServer(db_path)
-        self._db = DatabaseConnection(db_path)
+        self._server = R210McpServer(db_path, adapter_mode="review")
 
     def set_review_status(self, unique_key: str, new_status: str,
+                           table_hint: str = None,
                            review_note: str = None) -> dict:
         """Delegate to the MCP server's set_review_status handler.
 
-        Always passes caller="review" so approval is permitted (SRS-082a).
+        The server's adapter_mode="review" structurally permits approval
+        (SRS-082a). table_hint is passed through when the caller knows the
+        table; when omitted, the server resolves by unique_key scan.
         """
-        return self._server._handle_set_review_status({
+        args = {
             "unique_key": unique_key,
             "new_status": new_status,
-            "review_note": review_note,
             "caller": "review",
-        })
+        }
+        if table_hint is not None:
+            args["table_hint"] = table_hint
+        if review_note is not None:
+            args["review_note"] = review_note
+        return self._server.handle_tool("set_review_status", args)
 
     def update_review_issue(self, unique_key: str,
                              status: str = None,
@@ -232,90 +239,52 @@ class ReviewToolBridge:
             args["status"] = status
         if resolution is not None:
             args["resolution"] = resolution
-        return self._server._handle_update_review_issue(args)
+        return self._server.handle_tool("update_review_issue", args)
 
     def query(self, table: str, filters: dict = None) -> list[dict]:
-        """Query records using the MCP server's query handlers.
+        """Query records using the MCP server's public tool interface.
 
-        Returns FULL records (no Gemini projection) since the Local Review
-        CLI does not send data to the Gemini API (SRS-123).
+        Returns FULL records (no Gemini projection) because the server
+        was constructed with adapter_mode="review" (SRS-123).
         """
-        handler_map = {
-            "SourceRequirements": self._server._handle_query_source_requirements,
-            "TypeDefinitions": self._server._handle_query_type_definitions,
-            "PortInterfaces": self._server._handle_query_port_interfaces,
-            "PortPrototypes": self._server._handle_query_port_prototypes,
-            "PortConnections": self._server._handle_query_port_connections,
-            "ReviewIssues": self._server._handle_query_review_issues,
+        tool_map = {
+            "SourceRequirements": "query_source_requirements",
+            "TypeDefinitions": "query_type_definitions",
+            "PortInterfaces": "query_port_interfaces",
+            "PortPrototypes": "query_port_prototypes",
+            "PortConnections": "query_port_connections",
+            "ReviewIssues": "query_review_issues",
         }
-        handler = handler_map.get(table)
-        if handler:
-            return handler(filters or {})
-        # For child tables without dedicated query tools, use direct DB read
-        with self._db.read_only() as conn:
-            return self._server._dal.query_table(conn, table, filters or {})
+        tool_name = tool_map.get(table)
+        if tool_name:
+            return self._server.handle_tool(tool_name, filters or {})
+        # For child tables without dedicated query tools, use the
+        # server's query_by_table public helper
+        return self._server.query_by_table(table, filters or {})
 
     def show(self, unique_key: str) -> dict:
-        """Delegate to the MCP server's resolve_reference handler for lookup,
+        """Delegate to the MCP server's resolve_reference tool for lookup,
         then load children for display."""
-        result = self._server._handle_resolve_reference({"unique_key": unique_key})
+        result = self._server.handle_tool(
+            "resolve_reference", {"unique_key": unique_key}
+        )
         if "error" in result:
             return result
         # resolve_reference returns full record; load children for display
         table = result.get("table")
-        with self._db.read_only() as conn:
-            children = self._load_children(conn, table, result.get("record", {}))
+        children = self._server.get_children_for_display(
+            table, result.get("record", {})
+        )
         result["children"] = children
         return result
 
     def stats(self) -> dict:
         """Return database statistics: counts by table and status.
 
-        Note: Only queries tables that HAVE a status column. Structural
-        subtype tables (SimpleTypeDefinitions, ArrayTypeDefinitions) and
-        schema_version are counted by total only.
+        Uses the MCP server's public stats() method which queries tables
+        with and without status columns.
         """
-        TABLES_WITH_STATUS = {
-            "SourceRequirements", "TypeDefinitions",
-            "StructElements", "EnumValues",
-            "PortInterfaces", "InterfaceDataElements",
-            "ClientServerOperations", "OperationArguments",
-            "PortPrototypes", "PortPrototypeFunctions",
-            "PortConnections", "PortConnectionMembers",
-            "ReviewIssues",
-        }
-        TABLES_WITHOUT_STATUS = {
-            "SimpleTypeDefinitions", "ArrayTypeDefinitions",
-        }
-
-        with self._db.read_only() as conn:
-            stats = {}
-            for table in TABLES_WITH_STATUS | TABLES_WITHOUT_STATUS:
-                cursor = conn.execute(f"SELECT COUNT(*) FROM {table}")
-                total = cursor.fetchone()[0]
-
-                by_status = {}
-                if table in TABLES_WITH_STATUS:
-                    cursor = conn.execute(
-                        f"SELECT status, COUNT(*) FROM {table} GROUP BY status"
-                    )
-                    by_status = {row[0]: row[1] for row in cursor.fetchall()}
-
-                stats[table] = {"total": total, "by_status": by_status}
-            return stats
-
-    def _load_children(self, conn, table, record) -> list[dict]:
-        """Load child records for display purposes."""
-        from r210_mcp.validation.status import PARENT_CHILD_MAP
-        children = []
-        for child_rel in PARENT_CHILD_MAP.get(table, []):
-            rows = self._server._dal.get_children(
-                conn, child_rel.child_table, child_rel.fk_column, record["id"]
-            )
-            children.extend([
-                {"table": child_rel.child_table, "record": dict(r)} for r in rows
-            ])
-        return children
+        return self._server.get_stats()
 ```
 
 ---
@@ -444,3 +413,4 @@ The Local Review CLI guarantees no network communication:
 |---------|------------|---------|
 | 1.0     | 2026-08-10 | Initial LLD derived from SRS v5.0 and HLD v3.0. |
 | 1.1     | 2026-08-10 | Post-review amendments: Rewrote §5 tool invocation layer — ReviewToolBridge now delegates to `R210McpServer._handle_*` methods directly instead of reimplementing DAL/validator orchestration (SRS-123). Fixed `stats` to exclude subtype tables without status columns. Always passes `caller="review"` to permit approval (SRS-082a). |
+| 1.2     | 2026-08-11 | Review-driven fixes: Replaced all `_handle_*` / `_dal` private-method calls with public interface: `handle_tool()`, `query_by_table()`, `get_children_for_display()`, `get_stats()` (H-04). Added `table_hint` parameter to `set_review_status` (H-03). Server constructed with `adapter_mode="review"` binding authority structurally (C-04). Stats delegated to `server.get_stats()`. Updated source references to SRS v5.2, HLD v3.1. |

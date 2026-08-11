@@ -5,10 +5,10 @@
 | Field              | Value                                                    |
 |--------------------|----------------------------------------------------------|
 | **Document ID**    | R210-LLD-04                                              |
-| **Version**        | 1.1                                                      |
-| **Date**           | 2026-08-10                                               |
+| **Version**        | 1.2                                                      |
+| **Date**           | 2026-08-11                                               |
 | **Component**      | Deterministic Generator / Exporter                       |
-| **Source Documents**| R210-SRS-001 v5.0, R210-HLD-001 v3.0, R210-LLD-01 v1.0 |
+| **Source Documents**| R210-SRS-001 v5.2, R210-HLD-001 v3.1, R210-LLD-01 v1.0 |
 | **Status**         | Draft                                                    |
 
 ---
@@ -109,6 +109,7 @@ def generate(self, mode: str) -> GenerationResult:
         r210_files = self._render_r210(validated)
         result.r210_files = r210_files
         result.r210_errors = validated.errors
+        result.exported_artifacts = validated.artifacts()
 
     if mode in ("report_only", "both"):
         report_file = self._build_report(snapshot, result)
@@ -276,7 +277,7 @@ def _render_r210(self, validated: ValidatedSet) -> list[R210File]:
     files = []
     for artifact in sorted(validated.artifacts(),
                             key=lambda a: (a.type_sort_key,
-                                           a.sort_field.lower(),
+                                           (a.sort_field or "").lower(),
                                            a.id)):
         content = self._apply_template(artifact)
         file_path = self._determine_file_path(artifact)
@@ -393,6 +394,12 @@ class ReportBuilder:
             ))
         else:
             sections.append(self._section_approved_generated_empty())
+
+        # Section (a2): FK Validation Errors
+        if generation_result and generation_result.r210_errors:
+            sections.append(self._section_fk_validation_errors(
+                generation_result.r210_errors
+            ))
 
         # Section (b): Approved but Excluded (validation warnings)
         sections.append(self._section_approved_excluded(
@@ -637,3 +644,4 @@ class GenerationResult:
 |---------|------------|---------|
 | 1.0     | 2026-08-10 | Initial LLD derived from SRS v5.0, HLD v3.0, and LLD-01 v1.0. |
 | 1.1     | 2026-08-10 | Post-review amendments: Moved exportable-tree evaluation before mode check so report_only mode populates Section (b) warnings. Fixed PortConnections sort key from `name` (nonexistent) to `description`. Added `BEGIN` transaction to loader for snapshot consistency. Added `sort_field` column to artifact ordering table. |
+| 1.2     | 2026-08-11 | Review-driven fixes: Assigned `exported_artifacts` in pipeline (H-05). Fixed nullable sort_field crash with `(a.sort_field or "").lower()` (H-06). Added Section (a2) FK validation errors to report builder (M-06). Updated source references to SRS v5.2, HLD v3.1. |

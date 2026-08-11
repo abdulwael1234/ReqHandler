@@ -80,16 +80,16 @@ pytest
 | Document | Version | Path |
 |----------|---------|------|
 | System Description | — | `Sytem_description/system_Description.md` |
-| SRS | 5.1 | `Srs/SRS_Requirements.md` |
-| HLD | 3.1 | `archi/HLD_High_Level_Design.md` |
+| SRS | 5.2 | `Srs/SRS_Requirements.md` |
+| HLD | 3.2 | `archi/HLD_High_Level_Design.md` |
 | LLD-01 Database Schema | 1.0 | `lld/LLD_01_Database_Schema.md` |
-| LLD-02 MCP Server | 1.1 | `lld/LLD_02_MCP_Server.md` |
-| LLD-03 Gemini CLI Skill | 1.1 | `lld/LLD_03_Gemini_CLI_Skill.md` |
-| LLD-04 Deterministic Generator | 1.1 | `lld/LLD_04_Deterministic_Generator.md` |
-| LLD-05 Database Initializer | 1.1 | `lld/LLD_05_Database_Initializer.md` |
-| LLD-06 Local Review CLI | 1.1 | `lld/LLD_06_Local_Review_CLI.md` |
+| LLD-02 MCP Server | 1.2 | `lld/LLD_02_MCP_Server.md` |
+| LLD-03 Gemini CLI Skill | 1.2 | `lld/LLD_03_Gemini_CLI_Skill.md` |
+| LLD-04 Deterministic Generator | 1.2 | `lld/LLD_04_Deterministic_Generator.md` |
+| LLD-05 Database Initializer | 1.2 | `lld/LLD_05_Database_Initializer.md` |
+| LLD-06 Local Review CLI | 1.2 | `lld/LLD_06_Local_Review_CLI.md` |
 
 ## Status
 
-**Phase:** Design complete, implementation scaffolding in place.  
+**Phase:** Design in progress (Draft), implementation scaffolding in place — no operational code yet.  
 **Blocking decision:** SRS-015 — external data transfer to Gemini API requires stakeholder security approval. System operates on synthetic data until resolved.

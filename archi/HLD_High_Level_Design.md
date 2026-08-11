@@ -5,9 +5,9 @@
 | Field              | Value                                                    |
 |--------------------|----------------------------------------------------------|
 | **Document ID**    | R210-HLD-001                                             |
-| **Version**        | 3.1                                                      |
-| **Date**           | 2026-08-10                                               |
-| **Source Document** | `Srs/SRS_Requirements.md` (R210-SRS-001 v5.0)          |
+| **Version**        | 3.2                                                      |
+| **Date**           | 2026-08-11                                               |
+| **Source Document** | `Srs/SRS_Requirements.md` (R210-SRS-001 v5.1)          |
 | **Status**         | Draft — revised after second architecture review         |
 
 ---
@@ -60,7 +60,7 @@ The system automates the extraction of deterministic AUTOSAR artifacts from inpu
                     │  (BLOCKED — requires stakeholder approval,       │
                     │   SRS-015; synthetic data only until then)       │
                     └──────────────────────┬──────────────────────────┘
-                                           │ input text only (SRS-015a)
+                                           │ projected fields only (SRS-015a)
 ┌──────────────────────────────────────────┼──────────────────────────────────┐
 │                         Work Environment │                                   │
 │                                          ▼                                   │
@@ -124,7 +124,7 @@ The system is composed of six components (five core + one review interface):
 
 ### 2.3 Deployment Model
 
-All components run locally on the work computer. The only network connection is Gemini CLI's connection to the Gemini API, which is an approved transfer limited to input text (§2.1).
+All components run locally on the work computer. The only network connection is Gemini CLI's connection to the Gemini API; this transfer is **BLOCKED** pending stakeholder approval (SRS-015). When approved, data sent is limited to projected fields (§2.1, SRS-015a).
 
 | Component | Runtime | Notes |
 |-----------|---------|-------|
@@ -876,3 +876,4 @@ The SRS contains four stakeholder decisions. This HLD does **not** assume any pa
 | 2.0     | 2026-08-10 | Post-architecture-review revision addressing all findings. **Critical:** resolved confidentiality contradiction by documenting approved Gemini API transfer with data-minimization boundary (§2.1, §7.5); defined manual-review interface through MCP tools, not direct DB access (§4.2, SRS-118). **High:** closed pending-children export loophole — parent+children excluded from R210 if any child not approved (§3.4, SRS-104a); completed MCP tool catalog with update_source_requirement, child record CRUD, update_review_issue with resolution (§5.2); fixed report generation gating — report producible independently of R210 files (§3.4, §5.2 trigger_generation modes); added complete database constraint table with NOT NULL, UNIQUE, CHECK, and nullability rules (§3.3); allocated connection validation (SRS-069–072) to MCP server with explicit rule table (§3.2); stopped assuming stakeholder decisions — HLD designs for both options (§10). **Medium:** added invalid field to error response format (§6.2, aligning SRS-083/109); specified duplicate detection normalization, comparison, and persistence rules (§6.3); added determinism design details — encoding, line endings, ordering, TBD blockers (§7.1); improved ReviewIssues polymorphic reference with typed (artifact_type, artifact_unique_key) pair (§3.3, §5.2); documented kind-correction workflow via reject+recreate (§4.2, SRS-120). **Traceability:** expanded matrix to cover all 129 SRS v4.0 requirements individually. |
 | 3.0     | 2026-08-10 | Post-second-architecture-review revision aligned with SRS v5.0 (137 requirements). **Critical:** confidentiality rewritten as BLOCKING stakeholder decision — SRS cannot unilaterally authorize API transfer; system operates on synthetic data until approved (§2.1, §7.5, §9, §10); SRS-015a expanded to acknowledge MCP query results (keys, names, kinds) enter Gemini context. **High:** added Local Review CLI component (SRS-123) — local Python program invoking MCP tools without Gemini API connection (§2.2, §2.3, §4.2, §7.5); status restricted to `set_review_status` only — update tools reject status field (SRS-091a, §3.2, §5.2); automatic parent-demotion when child changes away from approved (SRS-035c, §3.2, §4.2); rejected children excluded from export evaluation — prevents permanent parent blockage (SRS-092a, §1.3, §3.4); connection member revalidation as single transaction (SRS-122, §3.2); TBD compatibility fallback creates ReviewIssue instead of silently accepting (SRS-125, §3.2, §9). **Medium:** migration transactions — each step + version update in single transaction with rollback on failure (SRS-124, §3.5); split determinism scope — R210 files from approved trees, report from full snapshot (SRS-101, §3.4, §7.1); expanded artifact_type CHECK to 11 types covering all child tables (SRS-074, §3.3); added Status column to Stakeholder Decisions table (§10). **Traceability:** expanded matrix to 137/137 SRS v5.0 requirements. |
 | 3.1     | 2026-08-10 | Post-LLD-review amendments aligned with SRS v5.1 (138 requirements). Changed diagram annotation from "approved external transfer" to "BLOCKED — requires stakeholder approval" (§2.1). Expanded §2.1 confidentiality with synthetic-mode gate and full projection/exclusion field lists. Updated §3.1 data-sent row. Added conditional deployment note. Added 3 new validation rules in §3.2: extraction caller cannot approve (SRS-082a), content-change demotion (SRS-082b), rejected-child exclusion in parent approval check (SRS-092a). Updated §5.2 set_review_status with caller parameter and scope restrictions. Added `description` to `create_port_prototype` input. Added SRS-082a, SRS-082b to traceability matrix. Updated coverage to 138/138. |
+| 3.2     | 2026-08-11 | Review-driven fixes. Fixed source reference from SRS v5.0 to v5.1 (L-03). Fixed diagram arrow label from "input text only" to "projected fields only" (L-04). Fixed deployment text from "approved transfer" to "BLOCKED pending stakeholder approval" (L-04). |

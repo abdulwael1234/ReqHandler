@@ -9,3 +9,14 @@ The reset command is a development-only destructive operation (SRS-100).
 
 See: LLD-05 §3 (CLI Entry Point)
 """
+
+import sys
+
+
+def main() -> None:
+    """Entry point for r210-init-db console script.
+
+    TODO: Implement argument parsing and dispatch to DatabaseInitializer.
+    """
+    print("r210-init-db: not yet implemented", file=sys.stderr)
+    sys.exit(1)

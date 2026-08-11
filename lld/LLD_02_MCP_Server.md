@@ -5,10 +5,10 @@
 | Field              | Value                                                    |
 |--------------------|----------------------------------------------------------|
 | **Document ID**    | R210-LLD-02                                              |
-| **Version**        | 1.1                                                      |
-| **Date**           | 2026-08-10                                               |
+| **Version**        | 1.2                                                      |
+| **Date**           | 2026-08-11                                               |
 | **Component**      | Python MCP Server                                        |
-| **Source Documents**| R210-SRS-001 v5.0, R210-HLD-001 v3.0, R210-LLD-01 v1.0 |
+| **Source Documents**| R210-SRS-001 v5.2, R210-HLD-001 v3.1, R210-LLD-01 v1.0 |
 | **Status**         | Draft                                                    |
 
 ---
@@ -490,13 +490,16 @@ def handle_<tool_name>(arguments: dict) -> dict:
 | `source_reference` | string | Yes      | Not empty                     |
 | `source_text`      | string | No       | —                             |
 | `review_note`      | string | No       | —                             |
+| `initial_status`   | string | No       | One of `"pending_review"`, `"ambiguous"`, `"out_of_scope"`. Defaults to `"pending_review"` (SRS-035a). Does NOT accept `"approved"` or `"rejected"`. This parameter allows the Gemini skill to tag uncertain records at creation (LLD-03 §4.5). |
 
 **Algorithm:**
 1. Validate `source_reference` not empty.
 2. Generate `unique_key` = `uuid4()`.
-3. Set `status` = `"pending_review"` (SRS-035a).
+3. Set `status` = `initial_status` if provided, else `"pending_review"` (SRS-035a).
 4. Within transaction: `dal.insert_source_requirement(...)`.
 5. Return `McpResult(unique_key=..., data={...}, warnings=[])`.
+
+> **Note:** The `initial_status` parameter follows the same contract in all create tools (`create_type_definition`, `create_port_interface`, `create_port_prototype`, `create_port_connection`, and all child-record create tools). It defaults to `"pending_review"` and only accepts the three non-terminal statuses listed above.
 
 #### `update_source_requirement`
 
@@ -714,13 +717,13 @@ def handle_<tool_name>(arguments: dict) -> dict:
 |------------------------|--------|----------|-------------------------------------------|
 | `source_requirement_key`| string | No       | Valid UUID if provided                     |
 | `artifact_type`         | string | No       | One of 11 permitted values or NULL         |
-| `artifact_unique_key`   | string | No       | Must be set if `artifact_type` is set (SRS-074) |
+| `artifact_unique_key`   | string | No       | Must be set together with `artifact_type` (SRS-074) |
 | `issue_type`            | string | Yes      | One of 5 permitted values (SRS-075)       |
 | `message`               | string | Yes      | Not empty                                 |
 
 **Algorithm:**
 1. Validate `issue_type` ∈ permitted values.
-2. Validate pairing: if `artifact_unique_key` is set, `artifact_type` must be set (SRS-074).
+2. Validate pairing: `artifact_type` and `artifact_unique_key` must both be set or both be NULL (SRS-074).
 3. Set `status` = `"pending"`.
 4. Within transaction: insert row.
 5. Return result.
@@ -758,31 +761,34 @@ This is the sole mechanism for changing artifact and reviewable-child status (SR
 | `table_hint` | string | Yes      | Table name to search                    |
 | `new_status` | string | Yes      | Valid artifact status (SRS-035)          |
 | `review_note`| string | No       | Stored only when the target table has a `review_note` column; silently ignored otherwise |
-| `caller`     | string | No       | `"extraction"` when called from Gemini skill; omitted or `"review"` for manual review |
+| `caller`     | string | Yes      | `"extraction"` when called from Gemini skill; `"review"` for manual review. The server validates this against its configured adapter mode (set at construction time) — an adapter constructed in extraction mode rejects `caller="review"` and vice versa, preventing parameter forgery. |
 
 **Algorithm:**
 
 ```
-1. Resolve unique_key → (table, record)
-2. Reject if table is ReviewIssues:
+1. Validate caller matches self._adapter_mode:
+   → If caller != self._adapter_mode, raise McpError(
+     "caller does not match server adapter_mode")
+2. Resolve unique_key → (table, record)
+3. Reject if table is ReviewIssues:
    → raise McpError("Use update_review_issue for review-issue status changes")
-3. Reject if table is SimpleTypeDefinitions or ArrayTypeDefinitions:
+4. Reject if table is SimpleTypeDefinitions or ArrayTypeDefinitions:
    → raise McpError("Structural subtype tables do not have a status field")
-4. Validate transition: current status → new_status (SRS-035b, ARTIFACT_TRANSITIONS)
-5. If new_status == "approved":
-   a. If caller == "extraction" → raise McpError(
+5. Validate transition: current status → new_status (SRS-035b, ARTIFACT_TRANSITIONS)
+6. If new_status == "approved":
+   a. If self._adapter_mode == "extraction" → raise McpError(
       "Approval is reserved for manual review (SRS-082a)")
    b. If table is a parent table:
       check_parent_can_be_approved(conn, dal, table, record.id)
       — Excludes rejected children from evaluation (SRS-046, SRS-053, SRS-092a)
       If blockers found → raise McpError listing non-approved children
-6. Within transaction:
+7. Within transaction:
    a. Update status
    b. If table has review_note column AND review_note provided: update review_note
    c. If the table is a child table AND new_status != "approved":
       auto_demote_parent_chain(conn, dal, table, record.id) → demoted_keys
       (SRS-035c)
-7. Return result including any demoted parent keys
+8. Return result including any demoted parent keys
 ```
 
 **Tables with `review_note` column:** SourceRequirements, TypeDefinitions, PortInterfaces, PortPrototypes, PortConnections. All other reviewable tables (StructElements, EnumValues, InterfaceDataElements, ClientServerOperations, OperationArguments, PortConnectionMembers, PortPrototypeFunctions) do not have `review_note`.
@@ -849,9 +855,21 @@ def check_for_duplicates(conn, dal, table: str, name: str,
 
 ```python
 class R210McpServer:
-    """MCP server main class. Registers all tools and dispatches calls."""
+    """MCP server main class. Registers all tools and dispatches calls.
 
-    def __init__(self, db_path: str):
+    The adapter_mode parameter binds the server's authority at construction
+    time (SRS-082a). When adapter_mode="extraction" (Gemini workflow),
+    approval transitions are structurally forbidden and query results are
+    projected per §11. When adapter_mode="review" (Local Review CLI),
+    approval is permitted and full records are returned.
+    """
+
+    VALID_MODES = frozenset({"extraction", "review"})
+
+    def __init__(self, db_path: str, adapter_mode: str = "extraction"):
+        if adapter_mode not in self.VALID_MODES:
+            raise ValueError(f"adapter_mode must be one of {self.VALID_MODES}")
+        self._adapter_mode = adapter_mode
         self._db = DatabaseConnection(db_path)
         self._dal = DataAccessLayer()
         self._mcp = McpServer("r210-automation")
@@ -859,7 +877,7 @@ class R210McpServer:
 
     def _register_tools(self):
         """Register all MCP tools with the server."""
-        tools = {
+        self._tools = tools = {
             "create_source_requirement": self._handle_create_source_requirement,
             "update_source_requirement": self._handle_update_source_requirement,
             "query_source_requirements": self._handle_query_source_requirements,
@@ -902,6 +920,66 @@ class R210McpServer:
     def run(self):
         """Start the MCP server on stdio transport."""
         self._mcp.run(transport="stdio")
+
+    # ── Public interface for non-MCP callers (e.g., Local Review CLI) ──
+
+    def handle_tool(self, tool_name: str, arguments: dict) -> dict:
+        """Dispatch a tool call by name. Used by the Local Review CLI to
+        invoke tools without going through the MCP protocol layer."""
+        handler = self._tools.get(tool_name)
+        if handler is None:
+            raise ValueError(f"Unknown tool: {tool_name}")
+        return handler(arguments)
+
+    def query_by_table(self, table: str, filters: dict) -> list[dict]:
+        """Query a table that has no dedicated query tool (child tables).
+        Returns full records when adapter_mode="review"."""
+        with self._db.read_only() as conn:
+            return self._dal.query_table(conn, table, filters)
+
+    def get_children_for_display(self, table: str, record: dict) -> list[dict]:
+        """Load child records for a parent record (display purposes)."""
+        from r210_mcp.validation.status import PARENT_CHILD_MAP
+        children = []
+        with self._db.read_only() as conn:
+            for child_rel in PARENT_CHILD_MAP.get(table, []):
+                rows = self._dal.get_children(
+                    conn, child_rel.child_table,
+                    child_rel.fk_column, record["id"]
+                )
+                children.extend([
+                    {"table": child_rel.child_table, "record": dict(r)}
+                    for r in rows
+                ])
+        return children
+
+    def get_stats(self) -> dict:
+        """Return database statistics: counts by table and status."""
+        TABLES_WITH_STATUS = {
+            "SourceRequirements", "TypeDefinitions",
+            "StructElements", "EnumValues",
+            "PortInterfaces", "InterfaceDataElements",
+            "ClientServerOperations", "OperationArguments",
+            "PortPrototypes", "PortPrototypeFunctions",
+            "PortConnections", "PortConnectionMembers",
+            "ReviewIssues",
+        }
+        TABLES_WITHOUT_STATUS = {
+            "SimpleTypeDefinitions", "ArrayTypeDefinitions",
+        }
+        with self._db.read_only() as conn:
+            stats = {}
+            for table in TABLES_WITH_STATUS | TABLES_WITHOUT_STATUS:
+                cursor = conn.execute(f"SELECT COUNT(*) FROM {table}")
+                total = cursor.fetchone()[0]
+                by_status = {}
+                if table in TABLES_WITH_STATUS:
+                    cursor = conn.execute(
+                        f"SELECT status, COUNT(*) FROM {table} GROUP BY status"
+                    )
+                    by_status = {row[0]: row[1] for row in cursor.fetchall()}
+                stats[table] = {"total": total, "by_status": by_status}
+        return stats
 ```
 
 **Tool count:** 35 registered tools (13 create + 13 update + 6 query + 3 cross-cutting).
@@ -1037,7 +1115,7 @@ MCP query tools must restrict their response payload when invoked during the Gem
 ```python
 # Fields permitted in Gemini-facing query responses (SRS-015a)
 GEMINI_PROJECTION: dict[str, list[str]] = {
-    "SourceRequirements":       ["unique_key", "name", "status"],
+    "SourceRequirements":       ["unique_key", "source_reference", "status"],
     "TypeDefinitions":          ["unique_key", "name", "kind", "status"],
     "SimpleTypeDefinitions":    ["unique_key"],
     "ArrayTypeDefinitions":     ["unique_key"],
@@ -1062,17 +1140,15 @@ def project_for_gemini(table: str, record: dict) -> dict:
 
 ### 11.2 Applying Projections
 
-- **Query tools** (`query_*`): Apply `project_for_gemini()` to each record in the response list. All query handlers use this projection by default since they are invoked through the MCP protocol (which serves Gemini).
-- **Create tools** (`create_*`): Return only `unique_key` and `warnings`. No record fields are included.
-- **Local Review CLI** (LLD-06): Does NOT use MCP protocol and therefore does NOT apply projections — the reviewer sees full records.
+- **Query tools** (`query_*`): When `self._adapter_mode == "extraction"`, apply `project_for_gemini()` to each record in the response list. When `self._adapter_mode == "review"`, return full records. This binds data visibility to the adapter identity, not the transport.
+- **Create tools** (`create_*`): Return only `unique_key` and `warnings`. No record fields are included (both modes).
+- **Local Review CLI** (LLD-06): Constructs the server with `adapter_mode="review"`, so queries return full records and approval transitions are permitted.
 
-### 11.3 SourceRequirements Special Case
+### 11.3 Notes
 
-`SourceRequirements` does not have a `name` field. The projection includes `source_reference` instead of `name` since `source_reference` is the external identifier needed for the query-first workflow:
-
-```python
-"SourceRequirements": ["unique_key", "source_reference", "status"],
-```
+- `SourceRequirements` does not have a `name` field; `source_reference` serves as its external identifier in the projection.
+- `ReviewIssues` includes `issue_type` to allow the skill to be aware of existing issues during extraction.
+- Both `source_reference` and `issue_type` are included in the SRS-015a allowlist.
 
 ---
 
@@ -1095,7 +1171,7 @@ def project_for_gemini(table: str, record: dict) -> dict:
 | §7.4 Port Prototype Tools | SRS-086, SRS-036, SRS-061, SRS-063 |
 | §7.5 Port Connection Tools | SRS-086, SRS-069, SRS-070, SRS-072, SRS-122, SRS-125 |
 | §7.6 Review Issue Tools | SRS-088, SRS-119, SRS-074, SRS-075, SRS-076 |
-| §7.7 Review Status Tool | SRS-089, SRS-091a, SRS-035b, SRS-035c, SRS-046, SRS-053, SRS-092a |
+| §7.7 Review Status Tool | SRS-082a, SRS-089, SRS-091a, SRS-035b, SRS-035c, SRS-046, SRS-053, SRS-092a |
 | §7.8 Reference Resolution | SRS-087 |
 | §7.9 Generation Trigger | SRS-090 |
 | §8 Duplicate Detection | SRS-034, SRS-121 |
@@ -1113,3 +1189,4 @@ def project_for_gemini(table: str, record: dict) -> dict:
 |---------|------------|---------|
 | 1.0     | 2026-08-10 | Initial LLD derived from SRS v5.0, HLD v3.0, and LLD-01 v1.0. |
 | 1.1     | 2026-08-10 | Post-review amendments: Fixed tool count from 33 to 35 (§9). Rewrote §7.7 `set_review_status`: scoped to artifacts/reviewable children only; added `caller` parameter for SRS-082a enforcement; ReviewIssues and structural subtypes rejected with explicit error; `review_note` silently ignored when column absent. Added §10.1 content-change demotion (SRS-082b). Added §11 response projection for Gemini-facing queries with `GEMINI_PROJECTION` dict and `project_for_gemini()` (SRS-015a). Added `description` parameter to `create_port_prototype` (SRS-060). Added §10.2 common update algorithm with full validation. Added §10.3 transactional revalidation for `update_port_connection_member` (SRS-122). Added §10.4 parent demotion on child creation (SRS-035c). Renumbered traceability matrix to §12. |
+| 1.2     | 2026-08-11 | Review-driven fixes: Made `caller` required and validated against `adapter_mode` (C-04). Added `adapter_mode` to server constructor binding authority structurally (SRS-082a). Projection now conditional on adapter_mode, not transport (M-07). Fixed SourceRequirements projection from `name` to `source_reference` (C-05). Added `initial_status` parameter to all create tools (H-02). Fixed ReviewIssue `artifact_type`/`artifact_unique_key` pairing to be bidirectional (M-05). Added SRS-082a to §7.7 traceability (M-01). Updated source references to SRS v5.2, HLD v3.1. |

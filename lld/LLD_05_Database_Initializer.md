@@ -5,10 +5,10 @@
 | Field              | Value                                                    |
 |--------------------|----------------------------------------------------------|
 | **Document ID**    | R210-LLD-05                                              |
-| **Version**        | 1.1                                                      |
-| **Date**           | 2026-08-10                                               |
+| **Version**        | 1.2                                                      |
+| **Date**           | 2026-08-11                                               |
 | **Component**      | Database Initializer                                     |
-| **Source Documents**| R210-SRS-001 v5.0, R210-HLD-001 v3.0, R210-LLD-01 v1.0 |
+| **Source Documents**| R210-SRS-001 v5.2, R210-HLD-001 v3.1, R210-LLD-01 v1.0 |
 | **Status**         | Draft                                                    |
 
 ---
@@ -124,9 +124,10 @@ class DatabaseInitializer:
         2. Connect and enable FK enforcement
         3. Ensure schema_version table exists
         4. Read current version (0 if fresh database)
-        5. Apply pending migrations in order (SRS-096, SRS-124)
-        6. Verify final schema state
-        7. Return result
+        5. Reject if current_version > target_version (newer schema)
+        6. Apply pending migrations in order (SRS-096, SRS-124)
+        7. Verify final schema state
+        8. Return result
 
         Each migration runs within a single transaction (SRS-124).
         On failure, the transaction rolls back, leaving the database
@@ -153,7 +154,18 @@ def init_db(self) -> InitResult:
         current_version = self._get_current_version(conn)
         target_version = len(self.MIGRATIONS)
 
-        # Step 4: Apply pending migrations (SRS-096, SRS-124)
+        # Step 4: Reject newer schema versions
+        if current_version > target_version:
+            return InitResult(
+                final_version=current_version,
+                migrations_applied=0,
+                status="failed",
+                error=f"Database schema version {current_version} is newer than "
+                      f"this application supports ({target_version}). "
+                      f"Upgrade the application or use a compatible database.",
+            )
+
+        # Step 5: Apply pending migrations (SRS-096, SRS-124)
         applied = 0
         if current_version < target_version:
             for i in range(current_version, target_version):
@@ -184,7 +196,7 @@ def init_db(self) -> InitResult:
                         error=f"Migration v{new_version:03d} failed: {e}",
                     )
 
-        # Step 5: Verify final schema state — runs even when version
+        # Step 6: Verify final schema state — runs even when version
         # is already current, to catch external corruption or manual
         # schema edits (SRS-098 idempotency guarantee).
         self._verify_schema(conn, max(current_version, target_version))
@@ -256,10 +268,10 @@ def _verify_schema(self, conn: sqlite3.Connection, expected_version: int) -> Non
 
     # --- 2. Index presence ---
     expected_indexes = {
-        # Key indexes from LLD-01 (not exhaustive — only critical ones)
-        "idx_source_req_status",
-        "idx_type_def_kind",
-        "idx_type_def_status",
+        # Key indexes — names must match DDL in V001InitialSchema._create_indexes()
+        "idx_source_requirements_status",
+        "idx_type_definitions_kind",
+        "idx_type_definitions_status",
         "idx_port_interfaces_type",
         "idx_port_interfaces_status",
         "idx_port_prototypes_interface",
@@ -757,3 +769,4 @@ MIGRATIONS = [
 |---------|------------|---------|
 | 1.0     | 2026-08-10 | Initial LLD derived from SRS v5.0, HLD v3.0, and LLD-01 v1.0. |
 | 1.1     | 2026-08-10 | Post-review amendments: Fixed CLI exit code to check `result.status` instead of always exiting 0. Removed early return that skipped `_verify_schema` when version is current. Enhanced `_verify_schema` to check indexes and FK integrity, not just table names. |
+| 1.2     | 2026-08-11 | Review-driven fixes: Fixed verification index names to match DDL — `idx_source_requirements_status`, `idx_type_definitions_kind`, `idx_type_definitions_status` (H-01). Added newer-schema-version rejection (M-04). Updated source references to SRS v5.2, HLD v3.1. |

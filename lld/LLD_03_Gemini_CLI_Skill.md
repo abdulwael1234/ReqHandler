@@ -5,10 +5,10 @@
 | Field              | Value                                                    |
 |--------------------|----------------------------------------------------------|
 | **Document ID**    | R210-LLD-03                                              |
-| **Version**        | 1.1                                                      |
-| **Date**           | 2026-08-10                                               |
+| **Version**        | 1.2                                                      |
+| **Date**           | 2026-08-11                                               |
 | **Component**      | Gemini CLI Skill                                         |
-| **Source Documents**| R210-SRS-001 v5.0, R210-HLD-001 v3.0                   |
+| **Source Documents**| R210-SRS-001 v5.2, R210-HLD-001 v3.1                   |
 | **Status**         | Draft                                                    |
 
 ---
@@ -66,21 +66,28 @@ These rules are embedded in the skill file as mandatory instructions. Each maps 
 
 ### 4.0 Synthetic-Mode Gate (SRS-015)
 
+> **Architecture note:** This gate is NOT enforced inside the Gemini skill itself.
+> By the time the skill executes, input text has already been transmitted to the
+> Gemini API. The gate is a **local preflight** in the launcher script that
+> invokes `gemini --skill`.
+
 ```
-RULE: Before processing any input requirements, verify the operating mode.
+ENFORCEMENT POINT: Local launcher script (before Gemini CLI invocation).
 
 Procedure:
-  1. Check whether stakeholder approval for real-data operation has been granted.
-     This is controlled by a configuration flag in the MCP server or skill
-     configuration (e.g., "approved_for_real_data": true/false).
+  1. Read the configuration flag "approved_for_real_data" (default: false)
+     from the MCP server or environment configuration.
   2. If NOT approved (default):
-     - Only synthetic/test requirements may be processed.
-     - If the input appears to contain real work requirements, STOP and
-       inform the user: "Real-data operation requires stakeholder approval
-       per SRS-015. Currently operating in synthetic-data-only mode."
+     - Print to the local terminal: "Real-data operation requires stakeholder
+       approval per SRS-015. Currently operating in synthetic-data-only mode."
+     - Exit without invoking Gemini CLI. No data leaves the work computer.
   3. If approved:
-     - Proceed with extraction, subject to all data-minimization rules
-       in §4.7 and §11.
+     - Invoke Gemini CLI with the skill file.
+     - Extraction proceeds subject to all data-minimization rules (§4.7, §11).
+
+The skill file itself includes a redundant advisory note reminding the LLM
+that only synthetic data should be processed, but this is defense-in-depth —
+the binding enforcement is the local preflight.
 ```
 
 ### 4.1 No Invention Rule (SRS-003, SRS-077)
@@ -148,14 +155,16 @@ RULE: Never attempt to access the SQLite database directly.
 All database operations must go through MCP tools.
 ```
 
-### 4.6 Data Minimization (SRS-015a)
+### 4.7 Data Minimization (SRS-015a)
 
 ```
 RULE: The following data enters your context from MCP query results:
 - unique_key values
-- name fields
-- kind/type fields
+- name fields (source_reference for SourceRequirements)
+- kind/interface_type fields
 - status fields (for determining if a record can be referenced)
+- direction (for PortPrototypes — connection cardinality checking)
+- issue_type (for ReviewIssues — extraction issue awareness)
 
 The following data must NEVER be sent to the API or included in prompts:
 - review_note fields
@@ -490,7 +499,7 @@ The skill file shall include an explicit data boundary section:
 
 ### 11.1 Data Entering Gemini Context
 
-The following fields are the **only** data permitted to enter Gemini context (SRS-015a). MCP query tools enforce this by returning only these fields in their response payload during the extraction workflow (see LLD-02 §7.10 Response Projection).
+The following fields are the **only** data permitted to enter Gemini context (SRS-015a). MCP query tools enforce this by returning only these fields in their response payload during the extraction workflow (see LLD-02 §11 Response Projection).
 
 | Data Category | Source | Enters Context | Justification |
 |--------------|--------|---------------|---------------|
@@ -500,9 +509,10 @@ The following fields are the **only** data permitted to enter Gemini context (SR
 | MCP query result: `kind` / `interface_type` | query_* tools | Yes | Classification and kind-matching |
 | MCP query result: `status` | query_* tools | Yes | Determine if record is usable for referencing |
 | MCP query result: `direction` | query_port_prototypes | Yes | Connection cardinality checking |
+| MCP query result: `source_reference` | query_source_requirements | Yes | External identifier for SourceRequirements (no `name` field) |
+| MCP query result: `issue_type` | query_review_issues | Yes | Extraction issue awareness |
 | MCP create result: `unique_key` | create_* tools | Yes | Reference newly created records |
 | MCP create result: `warnings` | create_* tools | Yes | Duplicate-detection alert text (SRS-121) |
-| MCP create result: `warnings` | create_* tools | Yes — duplicate detection alerts |
 
 ### 11.2 Data That Must NOT Enter Gemini Context
 
@@ -520,7 +530,7 @@ The following fields are the **only** data permitted to enter Gemini context (SR
 | Generated R210 output content | Generated content stays local |
 | Review report content | Report stays local |
 
-**Enforcement:** MCP query tools apply a field projection that returns only the fields listed in §11.1. This projection is enforced by the MCP server's response formatting layer (LLD-02 §7.10). Query tools used by the Local Review CLI (LLD-06) return full records since that path does not send data to the Gemini API.
+**Enforcement:** MCP query tools apply a field projection that returns only the fields listed in §11.1. This projection is enforced by the MCP server's response formatting layer (LLD-02 §11). Query tools used by the Local Review CLI (LLD-06) return full records since that path does not send data to the Gemini API.
 
 ---
 
@@ -529,12 +539,14 @@ The following fields are the **only** data permitted to enter Gemini context (SR
 | LLD Section | SRS Requirements |
 |-------------|-----------------|
 | §3 Role Definition | SRS-007, SRS-009, SRS-021 |
+| §4.0 Synthetic-Mode Gate | SRS-015 |
 | §4.1 No Invention | SRS-003, SRS-077 |
 | §4.2 Query-First | SRS-078 |
 | §4.3 Stable UUID | SRS-079 |
 | §4.4 Issue Recording | SRS-080, SRS-081 |
-| §4.5 No Direct DB | SRS-082 |
-| §4.6 Data Minimization | SRS-015a |
+| §4.5 No Approval Authority | SRS-082a |
+| §4.6 No Direct DB | SRS-082 |
+| §4.7 Data Minimization | SRS-015a |
 | §5 Classification | SRS-001, SRS-002, SRS-005, SRS-006, SRS-009 |
 | §6.1 Common Preamble | SRS-008, SRS-010, SRS-035a |
 | §6.2–6.5 Type Extractions | SRS-042–050 (data model for types) |
@@ -553,3 +565,4 @@ The following fields are the **only** data permitted to enter Gemini context (SR
 |---------|------------|---------|
 | 1.0     | 2026-08-10 | Initial LLD derived from SRS v5.0 and HLD v3.0. |
 | 1.1     | 2026-08-10 | Post-review amendments: Added §4.0 synthetic-mode gate. Added §4.5 no-approval-authority rule (caller="extraction", SRS-082a). Renumbered §4.5→§4.6, §4.6→§4.7. Expanded §11.1 data boundary with justification column and `direction`/`warnings` fields. Expanded §11.2 exclusion list with all specific fields. Removed retry logic from §9.1 (SRS-114). Fixed duplicate handling in §6.2: always create record, let MCP server handle duplicates (SRS-034). |
+| 1.2     | 2026-08-11 | Review-driven fixes: Moved §4.0 synthetic-mode gate to local preflight (C-03 — gate was post-transfer). Fixed duplicate §4.6 numbering (M-02). Fixed cross-reference from LLD-02 §7.10 to §11 (M-02). Removed duplicate warnings row in §11.1 (M-02). Added `source_reference` and `issue_type` to §4.7 and §11.1 field lists (C-05). Fixed traceability matrix: §4.0 added, §4.5 relabeled to "No Approval Authority" (M-02). Updated source references to SRS v5.2, HLD v3.1. |

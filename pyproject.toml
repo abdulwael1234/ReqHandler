@@ -10,7 +10,9 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "Proprietary"}
 
-dependencies = []
+dependencies = [
+    "mcp>=1.0",
+]
 
 [project.optional-dependencies]
 dev = [

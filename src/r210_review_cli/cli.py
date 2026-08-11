@@ -16,3 +16,14 @@ Commands:
 
 See: LLD-06 §4 (CLI Entry Point)
 """
+
+import sys
+
+
+def main() -> None:
+    """Entry point for r210-review console script.
+
+    TODO: Implement argument parsing and dispatch to ReviewToolBridge.
+    """
+    print("r210-review: not yet implemented", file=sys.stderr)
+    sys.exit(1)
