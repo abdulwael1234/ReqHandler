@@ -5,10 +5,10 @@
 | Field              | Value                                                    |
 |--------------------|----------------------------------------------------------|
 | **Document ID**    | R210-LLD-05                                              |
-| **Version**        | 1.2                                                      |
+| **Version**        | 1.3                                                      |
 | **Date**           | 2026-08-11                                               |
 | **Component**      | Database Initializer                                     |
-| **Source Documents**| R210-SRS-001 v5.2, R210-HLD-001 v3.1, R210-LLD-01 v1.0 |
+| **Source Documents**| R210-SRS-001 v5.3, R210-HLD-001 v3.3, R210-LLD-01 v1.0 |
 | **Status**         | Draft                                                    |
 
 ---
@@ -99,6 +99,14 @@ def main():
 ### 4.1 Class Design
 
 ```python
+@dataclass(frozen=True)
+class InitResult:
+    final_version: int
+    migrations_applied: int
+    status: str          # "success" | "up_to_date" | "failed"
+    error: str | None = None
+
+
 class DatabaseInitializer:
     """Manages database creation, schema migration, and version tracking."""
 
@@ -142,7 +150,8 @@ def init_db(self) -> InitResult:
     # Step 1: Create file if needed (SRS-095)
     # sqlite3.connect() creates the file automatically
 
-    conn = sqlite3.connect(self._db_path)
+    # Disable implicit driver transactions so migration boundaries are explicit.
+    conn = sqlite3.connect(self._db_path, isolation_level=None)
     conn.execute("PRAGMA foreign_keys = ON")    # SRS-032
     conn.execute("PRAGMA journal_mode = WAL")
 
@@ -184,11 +193,11 @@ def init_db(self) -> InitResult:
                         (new_version, migration.description),
                     )
 
-                    conn.commit()
+                    conn.execute("COMMIT")
                     applied += 1
 
                 except Exception as e:
-                    conn.rollback()  # SRS-124: rollback on failure
+                    conn.execute("ROLLBACK")  # SRS-124: rollback on failure
                     return InitResult(
                         final_version=current_version + applied,
                         migrations_applied=applied,
@@ -196,12 +205,20 @@ def init_db(self) -> InitResult:
                         error=f"Migration v{new_version:03d} failed: {e}",
                     )
 
-        # Step 6: Verify final schema state — runs even when version
-        # is already current, to catch external corruption or manual
-        # schema edits (SRS-098 idempotency guarantee).
-        self._verify_schema(conn, max(current_version, target_version))
-
         final_version = max(current_version, target_version)
+
+        # Step 6: Verify final schema state — runs even when the version is
+        # already current. Damage is reported, never repaired implicitly.
+        try:
+            self._verify_schema(conn, final_version)
+        except RuntimeError as exc:
+            return InitResult(
+                final_version=final_version,
+                migrations_applied=applied,
+                status="failed",
+                error=str(exc),
+            )
+
         return InitResult(
             final_version=final_version,
             migrations_applied=applied,
@@ -215,6 +232,9 @@ def init_db(self) -> InitResult:
 ### 4.3 Helper Methods
 
 ```python
+from .migrations.v001_initial_schema import INDEX_DDL, TABLE_DDL
+
+
 def _ensure_version_table(self, conn: sqlite3.Connection) -> None:
     """Create schema_version table if it doesn't exist."""
     conn.execute("""
@@ -224,7 +244,6 @@ def _ensure_version_table(self, conn: sqlite3.Connection) -> None:
             description TEXT
         )
     """)
-    conn.commit()
 
 def _get_current_version(self, conn: sqlite3.Connection) -> int:
     """Return the highest applied schema version, or 0 for a fresh database."""
@@ -239,25 +258,8 @@ def _verify_schema(self, conn: sqlite3.Connection, expected_version: int) -> Non
 
     errors = []
 
-    # --- 1. Table presence ---
-    expected_tables = {
-        "schema_version",
-        "SourceRequirements",
-        "TypeDefinitions",
-        "SimpleTypeDefinitions",
-        "ArrayTypeDefinitions",
-        "StructElements",
-        "EnumValues",
-        "PortInterfaces",
-        "InterfaceDataElements",
-        "ClientServerOperations",
-        "OperationArguments",
-        "PortPrototypes",
-        "PortPrototypeFunctions",
-        "PortConnections",
-        "PortConnectionMembers",
-        "ReviewIssues",
-    }
+    # --- 1. Table presence — migration manifest is the source of truth ---
+    expected_tables = {"schema_version"} | set(TABLE_DDL)
     cursor = conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table'"
     )
@@ -266,20 +268,8 @@ def _verify_schema(self, conn: sqlite3.Connection, expected_version: int) -> Non
     if missing_tables:
         errors.append(f"Missing tables: {missing_tables}")
 
-    # --- 2. Index presence ---
-    expected_indexes = {
-        # Key indexes — names must match DDL in V001InitialSchema._create_indexes()
-        "idx_source_requirements_status",
-        "idx_type_definitions_kind",
-        "idx_type_definitions_status",
-        "idx_port_interfaces_type",
-        "idx_port_interfaces_status",
-        "idx_port_prototypes_interface",
-        "idx_port_prototypes_direction",
-        "idx_port_prototypes_status",
-        "idx_port_connections_status",
-        "idx_review_issues_status",
-    }
+    # --- 2. Index presence — verify every declared index ---
+    expected_indexes = set(INDEX_DDL)
     cursor = conn.execute(
         "SELECT name FROM sqlite_master WHERE type='index'"
     )
@@ -345,7 +335,46 @@ class Migration(ABC):
 
 ### 5.2 Initial Schema Migration (`migrations/v001_initial_schema.py`)
 
-This migration creates all tables defined in LLD-01 §3.
+This migration creates all tables defined in LLD-01 §3. The implementation
+stores complete statements in module-level `TABLE_DDL` and `INDEX_DDL`
+mappings and stores the repeated five-state constraint in `_STATUS_CHECK`.
+`up()` iterates those mappings in insertion/dependency order. This makes the
+migration manifest available to `_verify_schema` while the independent tests
+remain pinned to the LLD-01 table and index lists.
+
+Canonical structure:
+
+```python
+_STATUS_CHECK = (
+    "CHECK (status IN "
+    "('pending_review','approved','rejected','ambiguous','out_of_scope'))"
+)
+
+TABLE_DDL: dict[str, str] = {
+    # One complete CREATE TABLE statement per LLD-01 §3 table.
+}
+
+INDEX_DDL: dict[str, tuple[str, str]] = {
+    # index name: (table name, indexed column expression)
+}
+
+class V001InitialSchema(Migration):
+    @property
+    def description(self) -> str:
+        return "Initial schema — all tables per LLD-01 v1.0"
+
+    def up(self, conn: sqlite3.Connection) -> None:
+        for ddl in TABLE_DDL.values():
+            conn.execute(ddl)
+        for name, (table, columns) in INDEX_DDL.items():
+            conn.execute(
+                f"CREATE INDEX IF NOT EXISTS {name} ON {table}({columns})"
+            )
+```
+
+The expanded equivalent below documents the complete SQL content of those
+mappings. It is a schema reference; the canonical implementation structure is
+the manifest-driven form above.
 
 ```python
 class V001InitialSchema(Migration):
@@ -661,29 +690,33 @@ def development_reset(db_path: str) -> None:
 
     It drops all application tables and re-runs init_db.
     """
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, isolation_level=None)
     try:
-        # Get all table names
+        # Skip every SQLite-owned internal table.
         cursor = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name != 'sqlite_sequence'"
+            "SELECT name FROM sqlite_master "
+            "WHERE type='table' AND name NOT LIKE 'sqlite_%'"
         )
         tables = [row[0] for row in cursor.fetchall()]
 
         # Disable FK enforcement for drop operations
         conn.execute("PRAGMA foreign_keys = OFF")
 
-        # Drop all tables
+        conn.execute("BEGIN IMMEDIATE")
         for table in tables:
-            conn.execute(f"DROP TABLE IF EXISTS {table}")
+            conn.execute(f'DROP TABLE IF EXISTS "{table}"')
 
-        conn.commit()
+        conn.execute("COMMIT")
     finally:
         conn.close()
 
     # Re-initialize
     from .initializer import DatabaseInitializer
-    initializer = DatabaseInitializer(db_path)
-    initializer.init_db()
+    result = DatabaseInitializer(db_path).init_db()
+    if result.status == "failed":
+        raise RuntimeError(
+            f"Database reset failed to re-initialize the schema: {result.error}"
+        )
 ```
 
 ---
@@ -743,7 +776,7 @@ MIGRATIONS = [
 | Database file does not exist | Created automatically | SRS-095 |
 | Schema is already up to date | Returns success with 0 migrations applied | SRS-098 |
 | Migration SQL fails | Transaction rolls back; database stays at last good version | SRS-124 |
-| Schema verification fails | Raises RuntimeError with missing table list | SRS-096 |
+| Current-version schema verification fails | `init_db` returns `InitResult(status="failed", error=...)`; no automatic repair is attempted | SRS-096 |
 | Permission error on file | Raises OS error with file path | — |
 | Corrupt database file | SQLite raises error; not handled by initializer | — |
 
@@ -770,3 +803,4 @@ MIGRATIONS = [
 | 1.0     | 2026-08-10 | Initial LLD derived from SRS v5.0, HLD v3.0, and LLD-01 v1.0. |
 | 1.1     | 2026-08-10 | Post-review amendments: Fixed CLI exit code to check `result.status` instead of always exiting 0. Removed early return that skipped `_verify_schema` when version is current. Enhanced `_verify_schema` to check indexes and FK integrity, not just table names. |
 | 1.2     | 2026-08-11 | Review-driven fixes: Fixed verification index names to match DDL — `idx_source_requirements_status`, `idx_type_definitions_kind`, `idx_type_definitions_status` (H-01). Added newer-schema-version rejection (M-04). Updated source references to SRS v5.2, HLD v3.1. |
+| 1.3     | 2026-08-11 | Aligned with SRS v5.3 and the approved Phase 1 initializer behavior. Clarified that damage detected in a current-version schema is returned as a structured failure and is not repaired implicitly; any repair operation must be explicitly administrative. |

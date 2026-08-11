@@ -8,7 +8,7 @@
 | **Phase**            | Phase 1 — Database Foundation (models, migration, initializer)|
 | **Date**             | 2026-08-11                                                   |
 | **Branch**           | `feature/phase1-database-foundation`                         |
-| **Source Documents** | R210-SRS-001 v5.2, R210-LLD-01 v1.0, R210-LLD-02 v1.2, R210-LLD-05 v1.2 |
+| **Source Documents** | R210-SRS-001 v5.3, R210-LLD-01 v1.0, R210-LLD-02 v1.3, R210-LLD-05 v1.3 |
 | **Companion**        | `docs/DEVIATIONS_FROM_REQUIREMENTS.md`                       |
 | **Status**           | Complete — 150 tests passing, ruff clean, mypy strict clean   |
 
@@ -41,6 +41,7 @@ generator, and the review CLI. Those consume this layer in later phases.
 |--------|---------|
 | **Full** | The requirement is completely satisfied by Phase 1 code. |
 | **Schema** | The database-level half is enforced now; the remaining application-level half belongs to a named later phase. This is by design — the SRS/LLD assign that half to the MCP tool boundary. |
+| **Interim** | Phase 1 implements the documented safe default, but a stakeholder policy decision may require a later migration. |
 
 ---
 
@@ -51,7 +52,7 @@ generator, and the review CLI. Those consume this layer in later phases.
 | SRS-025 | Initializer creates and upgrades schema without deleting content | Full | `initializer.py` | `TestDataPreservation`, `TestIdempotency` |
 | SRS-094 | Safe `init_db` operation outside the Gemini-facing MCP tools | Full | `cli.py::main`, `DatabaseInitializer.init_db` | `TestInitCommand` |
 | SRS-095 | `init_db` creates the database file when absent | Full | `sqlite3.connect()` in `init_db` | `test_creates_database_file_when_absent` |
-| SRS-096 | `init_db` creates missing tables, constraints, and indexes | Full | `V001InitialSchema.up`, `_create_indexes` | `test_creates_all_application_tables`, `test_creates_indexes_declared_in_lld01` |
+| SRS-096 | `init_db` creates schema objects during initialization/migration and reports damage to a current-version schema without implicit repair | Full | `V001InitialSchema.up`, `_create_indexes`, `_verify_schema` | `test_creates_all_application_tables`, `test_creates_indexes_declared_in_lld01`, `TestSchemaVerification` |
 | SRS-097 | `init_db` records the database schema version | Full | `_ensure_version_table`, version INSERT | `TestSchemaVersionTracking` |
 | SRS-098 | `init_db` is idempotent | Full | `CREATE ... IF NOT EXISTS` + version check | `TestIdempotency` (3 tests) |
 | SRS-099 | `init_db` preserves all existing data | Full | No DROP/TRUNCATE in any migration path | `test_existing_rows_survive_reinitialization` |
@@ -73,9 +74,9 @@ generator, and the review CLI. Those consume this layer in later phases.
 | SRS-032 | Foreign-key enforcement enabled in SQLite | Full | `PRAGMA foreign_keys = ON` | `TestForeignKeyEnforcement` |
 | SRS-035 | Five review states supported | Full | 5-value CHECK on every `status` column | `TestStatusConstraints` (8 tests) |
 | SRS-035a | New records default to `pending_review`; subtypes carry no `status` | Full | Column `DEFAULT 'pending_review'`; no `status` on subtype tables | `test_new_records_default_to_pending_review`, `test_structural_subtype_tables_carry_no_status_column` |
-| SRS-035b | Permitted status transitions (artifact and issue) | Schema | `ARTIFACT_TRANSITIONS`, `ISSUE_TRANSITIONS` in `models.py` | `TestStatusTransitions` (7 tests) — *enforcement is Phase 3* |
+| SRS-035b | Permitted status transitions (five-state reviewable records and issues) | Schema | `ARTIFACT_TRANSITIONS`, `ISSUE_TRANSITIONS` in `models.py` | `TestStatusTransitions` (7 tests) — *enforcement is Phase 3* |
 | SRS-036 | `PortPrototypes.port_interface_id` is `NULL` while unresolved | Full | Nullable FK column | `test_port_prototype_interface_may_be_null_while_unresolved` |
-| SRS-036a | Other cross-artifact FKs reject `NULL` (documented default) | Full | `NOT NULL` on `element_type_id` / `type_definition_id` | `test_struct_element_type_reference_is_mandatory` — *see DEV-O-02* |
+| SRS-036a | Other cross-artifact FKs reject `NULL` under the documented interim default | **Interim** | `NOT NULL` on `element_type_id` / `type_definition_id` | `test_struct_element_type_reference_is_mandatory` — *stakeholder policy remains open; see DEV-O-02* |
 | SRS-037 | `position` NOT NULL and unique within parent | Full | `NOT NULL` + `UNIQUE (parent_fk, position)` on all 6 ordered tables | `TestPositionConstraints` (4 tests) |
 | SRS-038 | Child records inherit traceability through their parent | Full | No `source_requirement_id` on any child table | Schema structure |
 | SRS-038a | Exactly one subtype detail row per `TypeDefinitions` parent | Schema | `UNIQUE` on `type_definition_id` | `TestSubtypeCardinality` — *"required in same operation" is Phase 4* |

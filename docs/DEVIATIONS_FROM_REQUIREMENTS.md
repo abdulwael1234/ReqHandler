@@ -6,7 +6,7 @@
 |----------------------|--------------------------------------------------------------|
 | **Document ID**      | R210-DEV-01                                                  |
 | **Date**             | 2026-08-11                                                   |
-| **Source Documents** | R210-SRS-001 v5.2, R210-LLD-01 v1.0, R210-LLD-02 v1.2, R210-LLD-05 v1.2 |
+| **Source Documents** | R210-SRS-001 v5.3, R210-LLD-01 v1.0, R210-LLD-02 v1.3, R210-LLD-05 v1.3 |
 | **Companion**        | `docs/PHASE1_IMPLEMENTED_REQUIREMENTS.md`                    |
 | **Status**           | Living document — updated as each phase is implemented        |
 
@@ -100,7 +100,7 @@ transaction required by SRS-124 unambiguous and explicit.
 
 ---
 
-### DEV-04 — Verification derives its expectations from the migration *(Correction)*
+### DEV-04 — Verification derives its expectations from the migration *(Refinement)*
 
 **Documents say:** LLD-05 §4.3 hardcodes a set of expected table names and a
 subset of ten "key indexes" inside `_verify_schema`, separate from the DDL in
@@ -135,12 +135,12 @@ variable inside `_create_indexes()`.
 ### DEV-06 — Shared constant for the repeated status CHECK *(Refinement)*
 
 **Documents say:** LLD-05 §5.2 repeats the five-value status CHECK clause
-verbatim in thirteen table definitions.
+verbatim in twelve table definitions.
 
 **Implementation:** A private `_STATUS_CHECK` constant interpolated into each
 definition.
 
-**Rationale:** Thirteen hand-copied constraint lists are thirteen chances for a
+**Rationale:** Twelve hand-copied constraint lists are twelve chances for a
 typo that SQLite accepts silently. The generated SQL is byte-identical.
 
 ---
@@ -245,7 +245,7 @@ with the CHECK constraint in the schema.
 
 ---
 
-### DEV-14 — `ARTIFACT_TABLES` includes `SourceRequirements` *(Gap-fill — review recommended)*
+### DEV-14 — `ARTIFACT_TABLES` includes `SourceRequirements` *(Gap-fill — approved)*
 
 **Documents say:** SRS-035a speaks of "artifact and reviewable child record".
 SourceRequirements is an *input* record, not an extracted artifact, yet LLD-01
@@ -257,9 +257,9 @@ for `set_review_status` (SRS-091a).
 **Rationale:** A source requirement that carries a review state must be
 reviewable, otherwise its `status` column can never leave `pending_review`.
 
-**Requested confirmation:** that reviewers are intended to set review states on
-source requirements. If not, `SourceRequirements.status` and `review_note`
-should be removed from LLD-01 §3.1 instead.
+**Decision:** approved. Reviewers are intended to set review states on source
+requirements. SRS-035a and SRS-091a v5.3 now explicitly identify
+`SourceRequirements` as a reviewable input record.
 
 ---
 
@@ -286,9 +286,9 @@ illustrative snippet.
 
 ---
 
-## 4. Open Items — Stakeholder Decision Required
+## 4. Decision Records and Remaining Open Items
 
-### DEV-O-01 — Does `init_db` repair an externally damaged schema?
+### DEV-O-01 — `init_db` reports externally damaged schema *(Resolved — approved)*
 
 **Tension:** SRS-096 says "`init_db` shall create missing tables, constraints,
 and indexes." LLD-05 §9 says schema verification failure "Raises RuntimeError
@@ -305,8 +305,12 @@ dropped would mask corruption and could resurrect a schema inconsistent with
 the data around it. Reporting is the safer default for a component whose stated
 purpose (SRS-099) is to preserve existing content.
 
-**Decision needed:** confirm report-only, or specify a repair mode. If repair is
-wanted, a `--repair` flag re-running the idempotent DDL is the natural form.
+**Decision:** approved as report-only. SRS-096 v5.3 now distinguishes creation
+during initialization or pending migrations from verification of a database
+whose recorded version is already current. Any future repair capability must
+be an explicit administrative operation and must define how altered constraints
+and data preservation are handled; simply re-running idempotent DDL is not a
+complete schema-repair mechanism.
 
 ---
 
@@ -365,30 +369,30 @@ process real work data until this is resolved.
 
 | ID | Type | Area | Approval |
 |----|------|------|----------|
-| DEV-01 | Gap-fill | `InitResult` definition | Review recommended |
-| DEV-02 | Correction | Verification failure returned, not raised | Review recommended |
-| DEV-03 | Refinement | Explicit transaction control | Informational |
-| DEV-04 | Correction | Verification derived from migration DDL | Review recommended |
-| DEV-05 | Refinement | DDL as module-level mappings | Informational |
-| DEV-06 | Refinement | Shared status CHECK constant | Informational |
-| DEV-07 | Correction | `dev_reset` skips all internal tables | Review recommended |
-| DEV-08 | Correction | `dev_reset` reports re-init failure | Review recommended |
-| DEV-09 | Refinement | Reset refusal to stderr | Informational |
-| DEV-10 | Refinement | CLI dispatch structure | Informational |
-| DEV-11 | Addition | `TABLE_RECORD_MAP` | Review recommended |
-| DEV-12 | Addition | Table-grouping constants | Review recommended |
-| DEV-13 | Addition | `ARTIFACT_TYPE_TABLE_MAP` | Review recommended |
-| DEV-14 | Gap-fill | `SourceRequirements` treated as reviewable | **Confirmation requested** |
-| DEV-15 | Refinement | Field order pinned to column order | Informational |
-| DEV-16 | Refinement | PEP 604 optional syntax | Informational |
-| DEV-O-01 | Open item | Repair vs. report on damaged schema | **Decision required** |
+| DEV-01 | Gap-fill | `InitResult` definition | Approved |
+| DEV-02 | Correction | Verification failure returned, not raised | Approved |
+| DEV-03 | Refinement | Explicit transaction control | Approved |
+| DEV-04 | Refinement | Verification derived from migration DDL | Approved with independent requirements tests |
+| DEV-05 | Refinement | DDL as module-level mappings | Approved |
+| DEV-06 | Refinement | Shared status CHECK constant | Approved |
+| DEV-07 | Correction | `dev_reset` skips all internal tables | Approved |
+| DEV-08 | Correction | `dev_reset` reports re-init failure | Approved |
+| DEV-09 | Refinement | Reset refusal to stderr | Approved |
+| DEV-10 | Refinement | CLI dispatch structure | Approved |
+| DEV-11 | Addition | `TABLE_RECORD_MAP` | Approved |
+| DEV-12 | Addition | Table-grouping constants | Approved |
+| DEV-13 | Addition | `ARTIFACT_TYPE_TABLE_MAP` | Approved |
+| DEV-14 | Gap-fill | `SourceRequirements` treated as reviewable input | Approved; incorporated into SRS v5.3 |
+| DEV-15 | Refinement | Field order pinned to column order | Approved |
+| DEV-16 | Refinement | PEP 604 optional syntax | Approved |
+| DEV-O-01 | Resolved decision | Report-only behavior for damaged current-version schema | Approved; incorporated into SRS v5.3 |
 | DEV-O-02 | Open item | SRS-036a nullable cross-artifact FKs | **Decision required** |
 | DEV-O-03 | Open item | Broken `r210-review` entry point | Fix in Phase 8 |
 | DEV-O-04 | Open item | SRS-015 external data transfer | **Blocking, pre-existing** |
 
-**No requirement was skipped, weakened, or silently reinterpreted.** Every
-Phase 1 requirement listed in `PHASE1_IMPLEMENTED_REQUIREMENTS.md` is
-implemented and tested.
+All Phase 1 interpretations and deviations are explicitly recorded. Approved
+items are incorporated into the v5.3 requirements baseline; unresolved items
+remain identified as interim behavior or future-phase work.
 
 ---
 
@@ -397,3 +401,4 @@ implemented and tested.
 | Version | Date       | Changes |
 |---------|------------|---------|
 | 1.0     | 2026-08-11 | Initial version covering Phase 1 (database foundation). |
+| 1.1     | 2026-08-11 | Recorded approval of DEV-01 through DEV-16, resolved DEV-O-01 as report-only, incorporated source-requirement reviewability into SRS v5.3, and retained DEV-O-02 as the remaining Phase 1 stakeholder decision. |

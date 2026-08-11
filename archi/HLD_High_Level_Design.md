@@ -5,9 +5,9 @@
 | Field              | Value                                                    |
 |--------------------|----------------------------------------------------------|
 | **Document ID**    | R210-HLD-001                                             |
-| **Version**        | 3.2                                                      |
+| **Version**        | 3.3                                                      |
 | **Date**           | 2026-08-11                                               |
-| **Source Document** | `Srs/SRS_Requirements.md` (R210-SRS-001 v5.1)          |
+| **Source Document** | `Srs/SRS_Requirements.md` (R210-SRS-001 v5.3)          |
 | **Status**         | Draft — revised after second architecture review         |
 
 ---
@@ -45,7 +45,7 @@ The system automates the extraction of deterministic AUTOSAR artifacts from inpu
 
 ### 1.4 References
 
-- `Srs/SRS_Requirements.md` — Software Requirements Specification v5.0
+- `Srs/SRS_Requirements.md` — Software Requirements Specification v5.3
 - `Sytem_description/system_Description.md` — System Description
 
 ---
@@ -213,7 +213,7 @@ For each input requirement:
 | Port Connections | create (with members), update, query | SRS-086 |
 | Port Connection Children | create, update, query child records (PortConnectionMembers) | SRS-086 |
 | Review Issues | create, update (including resolution), query | SRS-088, SRS-119 |
-| Review State Management | set status on artifacts and issues (with transition validation) | SRS-089, SRS-035b |
+| Review State Management | set status on `SourceRequirements`, artifacts, reviewable children, and issues (with transition validation) | SRS-089, SRS-035b |
 | Reference Resolution | resolve UUID to record | SRS-087 |
 | Generation Trigger | request R210 output, report, or both | SRS-090 |
 
@@ -234,7 +234,7 @@ For each input requirement:
 | Direction value constraints | PortPrototypes: `provider`/`requester`; OperationArguments: `input`/`output`/`input_output` | SRS-061, SRS-059 |
 | Position uniqueness and positivity | All ordered child tables: position ≥ 1, UNIQUE(parent_fk, position) | SRS-037, SRS-038b |
 | Positive size values | `array_size` ≥ 1 | SRS-038b |
-| Status value constraints | Artifacts: 5-state; Issues: 3-state | SRS-035, SRS-076 |
+| Status value constraints | `SourceRequirements`, artifacts, and reviewable children: 5-state; issues: 3-state | SRS-035, SRS-076 |
 | Status transition validation | Only permitted transitions per SRS-035b | SRS-035b |
 | Parent status propagation check | Parent cannot be `approved` if any non-rejected child is not `approved` | SRS-046, SRS-053, SRS-092a |
 | Extraction caller cannot approve | When `caller` = `"extraction"`, transitions to `approved` are rejected | SRS-082a |
@@ -310,7 +310,7 @@ SourceRequirements
 |-------|-----------------|------------|---------------|
 | All tables | PK | `id` INTEGER PRIMARY KEY | SRS-026 |
 | All externally-referable tables | UNIQUE | `unique_key` UNIQUE NOT NULL | SRS-027 |
-| All artifact tables | CHECK | `status IN ('pending_review','approved','rejected','ambiguous','out_of_scope')` | SRS-035 |
+| SourceRequirements, artifact tables, and reviewable-child tables | CHECK | `status IN ('pending_review','approved','rejected','ambiguous','out_of_scope')` | SRS-035 |
 | TypeDefinitions | CHECK | `kind IN ('simple_typedef','array','struct','enum')` | SRS-043 |
 | PortInterfaces | CHECK | `interface_type IN ('sender_receiver','client_server')` | SRS-052 |
 | PortPrototypes | CHECK | `direction IN ('provider','requester')` | SRS-061 |
@@ -353,7 +353,7 @@ SourceRequirements
 | `ReviewIssues.resolution` | Yes | Set when issue is resolved |
 | `ReviewIssues.artifact_unique_key` | Yes | Issue may not target a specific artifact |
 | `ReviewIssues.artifact_type` | Yes | NULL when `artifact_unique_key` is NULL |
-| Other cross-artifact FKs (`element_type_id`) | Pending stakeholder decision (SRS-036a) — default: NOT NULL | SRS-036a |
+| Other cross-artifact type-reference FKs (`element_type_id` / `type_definition_id`) | Pending stakeholder decision (SRS-036a) — interim policy: NOT NULL | SRS-036a |
 
 ### 3.4 Deterministic Generator/Exporter
 
@@ -422,6 +422,8 @@ SourceRequirements
 | Idempotency | Safe to call repeatedly (SRS-098) |
 | Data preservation | Never drops or truncates existing tables (SRS-099) |
 | Versioning | Records schema version in metadata table (SRS-097) |
+| Current-version verification | Detects and reports missing expected tables or indexes; does not implicitly repair externally damaged schemas (SRS-096) |
+| Repair policy | Any future schema repair is an explicit administrative operation, separate from `init_db` |
 
 **Initialization sequence:**
 
@@ -489,7 +491,7 @@ Input Requirements
                                                 └──────────────┘
 ```
 
-**Review interface (SRS-118):** All review operations go through the MCP tool surface. The reviewer uses `query_*` tools to inspect artifacts and issues, `set_review_status` to approve/reject/mark artifacts, and `update_review_issue` to set resolution and close issues. No direct database modification is required. This ensures all validation rules (status transitions per SRS-035b, parent-child consistency per SRS-046/053, status-only-via-set_review_status per SRS-091a) are enforced during review.
+**Review interface (SRS-118):** All review operations go through the MCP tool surface. The reviewer uses `query_*` tools to inspect source inputs, artifacts, and issues; `set_review_status` to approve/reject/mark `SourceRequirements`, artifacts, and reviewable children; and `update_review_issue` to set resolution and close issues. No direct database modification is required. This ensures all validation rules (status transitions per SRS-035b, parent-child consistency per SRS-046/053, status-only-via-set_review_status per SRS-091a) are enforced during review.
 
 **Local Review CLI (SRS-123):** The reviewer accesses MCP tools through a local Python CLI that runs without connecting to the Gemini API. This guarantees review decisions and all associated database queries never leave the work computer. The review CLI is a local program, not a network-facing service.
 
@@ -646,7 +648,7 @@ All MCP tools follow a consistent pattern:
 
 | Tool Name | Input | Output | Validation |
 |-----------|-------|--------|------------|
-| `set_review_status` | unique_key, table_hint, new_status, review_note (opt), caller (opt) | updated record | Artifacts and reviewable children only — rejects ReviewIssues and structural subtypes (SRS-091a); status valid; transition valid (SRS-035b); caller="extraction" blocks approval (SRS-082a); parent-child consistency with rejected exclusion (SRS-046, SRS-053, SRS-092a); triggers automatic parent-demotion if child changes away from approved (SRS-035c); review_note silently ignored when column absent |
+| `set_review_status` | unique_key, table_hint, new_status, review_note (opt), caller | updated record | `SourceRequirements`, artifacts, and reviewable children only — rejects ReviewIssues and structural subtypes (SRS-091a); status valid; transition valid (SRS-035b); caller="extraction" blocks approval (SRS-082a); parent-child consistency with rejected exclusion (SRS-046, SRS-053, SRS-092a); triggers automatic parent-demotion if child changes away from approved (SRS-035c); review_note silently ignored when column absent |
 | `resolve_reference` | unique_key | record with table and details | record found across all tables |
 | `trigger_generation` | mode: `r210_only`, `report_only`, or `both` | generation result or error list | `r210_only`/`both`: ≥1 fully-approved artifact; `report_only`: always succeeds (SRS-104) |
 
@@ -758,6 +760,7 @@ Common determinism rules:
 - `init_db` uses `CREATE TABLE IF NOT EXISTS` and `CREATE INDEX IF NOT EXISTS`
 - Schema version checks prevent re-running migrations
 - Multiple calls produce the same final state
+- A current-version schema that has been externally damaged is reported as failed and is not silently modified
 
 ### 7.3 Traceability (SRS-107, SRS-038)
 
@@ -828,7 +831,7 @@ The SRS contains four stakeholder decisions. This HLD does **not** assume any pa
 | Decision | Options | HLD If (A) | HLD If (B) | SRS Reference | Status |
 |----------|---------|------------|------------|---------------|--------|
 | Authorization to transfer work data to Gemini API | (A) Approved with documented conditions; (B) Not approved | System processes real data with data-minimization per SRS-015a | System operates on synthetic data only; no real-data processing | SRS-015 | **BLOCKING** |
-| NULL-while-unresolved for cross-artifact FKs beyond `port_interface_id` | (A) Only `port_interface_id` nullable; others NOT NULL at insert | MCP rejects create with NULL `element_type_id`; extraction must resolve types before referencing them | MCP allows NULL `element_type_id`; adds `unresolved_reference` ReviewIssue; generator excludes records with NULL FKs | SRS-036a | Pending |
+| NULL-while-unresolved for cross-artifact FKs beyond `port_interface_id` | (A) Only `port_interface_id` nullable; the four type-reference FKs remain NOT NULL at insert | Schema and MCP reject NULL type references; extraction must resolve types before referencing them | Schema and MCP allow NULL type references; an `unresolved_reference` ReviewIssue is added and the generator excludes unresolved records | SRS-036a | Pending |
 | Parent-child approval (SRS v4.0 chose: all children must be approved) | (A) All non-rejected children approved; (B) Pending children allowed | Generator exports fully-approved trees; rejected children excluded per SRS-092a; parent auto-demoted per SRS-035c | Generator must define child handling for pending children in output | SRS-046, SRS-053 | Pending — implementable as designed |
 | Connection cardinality (SRS v4.0 chose: ≥1 each) | (A) ≥1 provider + ≥1 requester; (B) Other rules | MCP validates cardinality on connection create/update | Different validation rule | SRS-072 | Pending — implementable as designed |
 
@@ -877,3 +880,4 @@ The SRS contains four stakeholder decisions. This HLD does **not** assume any pa
 | 3.0     | 2026-08-10 | Post-second-architecture-review revision aligned with SRS v5.0 (137 requirements). **Critical:** confidentiality rewritten as BLOCKING stakeholder decision — SRS cannot unilaterally authorize API transfer; system operates on synthetic data until approved (§2.1, §7.5, §9, §10); SRS-015a expanded to acknowledge MCP query results (keys, names, kinds) enter Gemini context. **High:** added Local Review CLI component (SRS-123) — local Python program invoking MCP tools without Gemini API connection (§2.2, §2.3, §4.2, §7.5); status restricted to `set_review_status` only — update tools reject status field (SRS-091a, §3.2, §5.2); automatic parent-demotion when child changes away from approved (SRS-035c, §3.2, §4.2); rejected children excluded from export evaluation — prevents permanent parent blockage (SRS-092a, §1.3, §3.4); connection member revalidation as single transaction (SRS-122, §3.2); TBD compatibility fallback creates ReviewIssue instead of silently accepting (SRS-125, §3.2, §9). **Medium:** migration transactions — each step + version update in single transaction with rollback on failure (SRS-124, §3.5); split determinism scope — R210 files from approved trees, report from full snapshot (SRS-101, §3.4, §7.1); expanded artifact_type CHECK to 11 types covering all child tables (SRS-074, §3.3); added Status column to Stakeholder Decisions table (§10). **Traceability:** expanded matrix to 137/137 SRS v5.0 requirements. |
 | 3.1     | 2026-08-10 | Post-LLD-review amendments aligned with SRS v5.1 (138 requirements). Changed diagram annotation from "approved external transfer" to "BLOCKED — requires stakeholder approval" (§2.1). Expanded §2.1 confidentiality with synthetic-mode gate and full projection/exclusion field lists. Updated §3.1 data-sent row. Added conditional deployment note. Added 3 new validation rules in §3.2: extraction caller cannot approve (SRS-082a), content-change demotion (SRS-082b), rejected-child exclusion in parent approval check (SRS-092a). Updated §5.2 set_review_status with caller parameter and scope restrictions. Added `description` to `create_port_prototype` input. Added SRS-082a, SRS-082b to traceability matrix. Updated coverage to 138/138. |
 | 3.2     | 2026-08-11 | Review-driven fixes. Fixed source reference from SRS v5.0 to v5.1 (L-03). Fixed diagram arrow label from "input text only" to "projected fields only" (L-04). Fixed deployment text from "approved transfer" to "BLOCKED pending stakeholder approval" (L-04). |
+| 3.3     | 2026-08-11 | Aligned with SRS v5.3 Phase 1 decisions. Explicitly defined current-version schema verification as report-only, reserved repair for a separate administrative operation, and recognized `SourceRequirements` as a reviewable input record. |

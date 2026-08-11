@@ -5,10 +5,10 @@
 | Field              | Value                                                    |
 |--------------------|----------------------------------------------------------|
 | **Document ID**    | R210-LLD-02                                              |
-| **Version**        | 1.2                                                      |
+| **Version**        | 1.3                                                      |
 | **Date**           | 2026-08-11                                               |
 | **Component**      | Python MCP Server                                        |
-| **Source Documents**| R210-SRS-001 v5.2, R210-HLD-001 v3.1, R210-LLD-01 v1.0 |
+| **Source Documents**| R210-SRS-001 v5.3, R210-HLD-001 v3.3, R210-LLD-01 v1.0 |
 | **Status**         | Draft                                                    |
 
 ---
@@ -125,7 +125,7 @@ ARTIFACT_STATUSES = frozenset({
 # Review issue status values (SRS-076)
 ISSUE_STATUSES = frozenset({"pending", "resolved", "rejected"})
 
-# Permitted artifact status transitions (SRS-035b)
+# Permitted status transitions for all five-state reviewable records (SRS-035b)
 ARTIFACT_TRANSITIONS: dict[str, frozenset[str]] = {
     "pending_review": frozenset({"approved", "rejected", "ambiguous", "out_of_scope"}),
     "approved":       frozenset({"pending_review", "rejected"}),
@@ -751,7 +751,7 @@ def handle_<tool_name>(arguments: dict) -> dict:
 
 #### `set_review_status`
 
-This is the sole mechanism for changing artifact and reviewable-child status (SRS-091a). It does NOT handle `ReviewIssues` (use `update_review_issue` per SRS-119) or structural subtype tables (`SimpleTypeDefinitions`, `ArrayTypeDefinitions`) which have no `status` field.
+This is the sole mechanism for changing artifact, reviewable-child, and `SourceRequirements` input-record status (SRS-091a). `SourceRequirements` is reviewable even though it is an input record rather than an extracted artifact. This tool does NOT handle `ReviewIssues` (use `update_review_issue` per SRS-119) or structural subtype tables (`SimpleTypeDefinitions`, `ArrayTypeDefinitions`) which have no `status` field.
 
 **Input parameters:**
 
@@ -759,7 +759,7 @@ This is the sole mechanism for changing artifact and reviewable-child status (SR
 |-------------|--------|----------|-----------------------------------------|
 | `unique_key` | string | Yes      | Valid UUID, record exists                |
 | `table_hint` | string | Yes      | Table name to search                    |
-| `new_status` | string | Yes      | Valid artifact status (SRS-035)          |
+| `new_status` | string | Yes      | Valid reviewable-record status (SRS-035) |
 | `review_note`| string | No       | Stored only when the target table has a `review_note` column; silently ignored otherwise |
 | `caller`     | string | Yes      | `"extraction"` when called from Gemini skill; `"review"` for manual review. The server validates this against its configured adapter mode (set at construction time) — an adapter constructed in extraction mode rejects `caller="review"` and vice versa, preventing parameter forgery. |
 
@@ -1009,7 +1009,7 @@ def _reject_status_in_update(arguments: dict, tool_name: str) -> None:
 
 **SRS trace:** SRS-082b.
 
-Every `update_*` handler for artifact or reviewable-child tables enforces the following after applying the update:
+Every `update_*` handler for `SourceRequirements`, artifact, or reviewable-child tables enforces the following after applying the update:
 
 ```python
 def _demote_if_approved(conn, dal, table: str, record_id: int,
@@ -1190,3 +1190,4 @@ def project_for_gemini(table: str, record: dict) -> dict:
 | 1.0     | 2026-08-10 | Initial LLD derived from SRS v5.0, HLD v3.0, and LLD-01 v1.0. |
 | 1.1     | 2026-08-10 | Post-review amendments: Fixed tool count from 33 to 35 (§9). Rewrote §7.7 `set_review_status`: scoped to artifacts/reviewable children only; added `caller` parameter for SRS-082a enforcement; ReviewIssues and structural subtypes rejected with explicit error; `review_note` silently ignored when column absent. Added §10.1 content-change demotion (SRS-082b). Added §11 response projection for Gemini-facing queries with `GEMINI_PROJECTION` dict and `project_for_gemini()` (SRS-015a). Added `description` parameter to `create_port_prototype` (SRS-060). Added §10.2 common update algorithm with full validation. Added §10.3 transactional revalidation for `update_port_connection_member` (SRS-122). Added §10.4 parent demotion on child creation (SRS-035c). Renumbered traceability matrix to §12. |
 | 1.2     | 2026-08-11 | Review-driven fixes: Made `caller` required and validated against `adapter_mode` (C-04). Added `adapter_mode` to server constructor binding authority structurally (SRS-082a). Projection now conditional on adapter_mode, not transport (M-07). Fixed SourceRequirements projection from `name` to `source_reference` (C-05). Added `initial_status` parameter to all create tools (H-02). Fixed ReviewIssue `artifact_type`/`artifact_unique_key` pairing to be bidirectional (M-05). Added SRS-082a to §7.7 traceability (M-01). Updated source references to SRS v5.2, HLD v3.1. |
+| 1.3     | 2026-08-11 | Aligned with SRS v5.3 and HLD v3.3. Explicitly classified `SourceRequirements` as a reviewable input record within the `set_review_status` scope. |
