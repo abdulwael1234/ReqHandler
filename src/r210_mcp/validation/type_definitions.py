@@ -36,8 +36,12 @@ def validate_kind_value(kind: Any, *, operation: str) -> None:
     validate_choice(kind, KINDS, "kind", operation=operation)
 
 
-def validate_subtype_matches_kind(kind: str, subtype: Any, *, operation: str) -> None:
-    """Reject a missing or mismatched subtype detail (SRS-038a, SRS-044)."""
+def validate_subtype_matches_kind(kind: str, subtype: Any, *, operation: str) -> dict[str, Any]:
+    """Reject a missing or mismatched subtype detail (SRS-038a, SRS-044).
+
+    Returns the validated object so the caller carries a narrowed `dict` rather
+    than re-checking a value this function has already proved.
+    """
     if not isinstance(subtype, dict):
         raise McpValidationError.of(
             operation,
@@ -51,6 +55,7 @@ def validate_subtype_matches_kind(kind: str, subtype: Any, *, operation: str) ->
             f"subtype for kind {kind!r} must contain {required!r} (SRS-044)",
             field="subtype",
         )
+    return dict(subtype)
 
 
 def validate_parent_kind(
