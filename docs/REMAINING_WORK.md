@@ -9,6 +9,7 @@
 | **Source Documents** | R210-SRS-001 v5.4, R210-LLD-03 v1.3, R210-LLD-04 v1.3, R210-LLD-06 v1.2 |
 | **Companions**       | `docs/PHASE1_IMPLEMENTED_REQUIREMENTS.md`, `docs/PHASE2_IMPLEMENTED_REQUIREMENTS.md`, `docs/PHASE3_IMPLEMENTED_REQUIREMENTS.md` |
 | **Status**           | Living document — updated as each remaining item closes       |
+| **Superseded by**    | `docs/PHASE4_SCOPE.md`, `docs/PHASE5_SCOPE.md` for phase-level planning |
 
 ---
 
@@ -127,13 +128,15 @@ behaviour yet (see DEV-O-03, closed).
 
 | LLD-06 § | Module | Responsibility | SRS |
 |----------|--------|----------------|-----|
-| §4 | `cli.py` | Argument parsing, nine commands | SRS-123 |
+| §4 | `cli.py` | Argument parsing, twelve commands | SRS-123 |
 | §5 | `commands/*` | Review tool bridge over the MCP handlers | SRS-118, SRS-123 |
 | §6 | `display.py` | Record and tree display formatting | — |
 | §7 | — | Network isolation guarantee | SRS-123 |
 
-Commands specified: `list`, `show`, `search`, `approve`, `reject`, `mark`,
-`resolve`, `stats`, `generate`.
+Commands specified (LLD-06 §4.1): `list`, `show`, `search`, `approve`,
+`reject`, `mark`, `resolve`, `dismiss`, `reopen`, `report`, `generate`,
+`stats`. The `cli.py` stub docstring lists only nine and is stale — LLD-06 is
+normative.
 
 **Ready to build.** Phase 3 deliberately produced the surface this component
 needs: handlers are plain functions over a `ToolContext` (DEV-26), and
@@ -173,7 +176,16 @@ Ranked starting points are recorded in
 `docs/PHASE2_IMPLEMENTED_REQUIREMENTS.md` §9 and
 `docs/PHASE3_IMPLEMENTED_REQUIREMENTS.md` §10.
 
-### 4.3 Phase 2 deviations are still unreviewed
+### 4.3 Phase 3 defects found in acceptance testing
+
+Independent acceptance testing on 2026-08-13 found three behavioural defects
+and one architectural finding, all verified against LLD-02: non-atomic port
+connection creation (D-01, critical), unresolvable array references (D-02,
+high), one-directional typed-reference pairing (D-03), and SQL outside the DAL
+(D-04). Recorded in `docs/PHASE3_IMPLEMENTED_REQUIREMENTS.md` §11 and scheduled
+as the first deliverable of Phase 4 (`docs/PHASE4_SCOPE.md` §3.0).
+
+### 4.4 Phase 2 deviations are still unreviewed
 
 DEV-17 through DEV-24 remain marked "Phase 2 — pending review". DEV-24 is
 already known to be wrong: DEV-36 supersedes it, because the split it describes

@@ -13,7 +13,7 @@
 | **Design**           | `docs/superpowers/specs/2026-08-12-phase3-mcp-tool-surface-design.md` |
 | **Plan**             | `docs/superpowers/plans/2026-08-12-phase3-mcp-tool-surface.md` (5 parts) |
 | **Predecessor**      | `docs/PHASE2_IMPLEMENTED_REQUIREMENTS.md`                    |
-| **Status**           | Complete — 590 tests passing, ruff clean, mypy strict clean  |
+| **Status**           | Implemented; **four defects found in independent acceptance testing on 2026-08-13** — see §11 |
 
 ---
 
@@ -101,7 +101,7 @@ CLI, LLD-06) are the only phases remaining.**
 | SRS-027 | Referable records carry a unique `unique_key` | Full | `uuid4()` at create time | `test_inserts_and_returns_a_uuid_key` |
 | SRS-034, SRS-121 | Duplicate warning after normalized comparison | Full | `check_for_duplicates` normalizes both sides (DEV-36); warning returned and an `ambiguous` issue created | `test_duplicate_produces_a_warning_and_an_issue`, `test_matches_after_whitespace_normalization` |
 | SRS-036, SRS-030 | Missing optional relationship is NULL | Full | Optional refs bind NULL; an absent update argument never clears a column | `test_port_interface_key_may_stay_unresolved`, `test_an_absent_reference_argument_does_not_clear_the_column` |
-| SRS-036a | Unresolved reference creates an issue; blocks approval; resolvable later | Full | `create_unresolved_issue`, `sync_unresolved_issues`, `check_references_resolved` (DEV-27) | `test_unresolved_reference_creates_an_issue`, `test_resolving_a_reference_resolves_its_issue`, `test_unresolved_reference_blocks_approval` |
+| SRS-036a | Unresolved reference creates an issue; blocks approval; resolvable later | **Partial** | Works for `StructElements`, `InterfaceDataElements`, `OperationArguments`. An **array** reference cannot be resolved: `update_type_definition` rejects `subtype` — **defect D-02, §11** | `test_unresolved_reference_creates_an_issue`, `test_resolving_a_reference_resolves_its_issue`, `test_unresolved_reference_blocks_approval` |
 | SRS-037, SRS-108 | Deterministic ordering by position | Full | Inherited from the DAL's `_order_by` | `test_records_are_deterministically_ordered` |
 | SRS-038a | Exactly one subtype detail row per parent | Full | `create_type_definition` writes parent, detail and children in one transaction | `test_creates_a_simple_typedef_with_its_detail_row` |
 | SRS-038b | `position` and `array_size` are integers ≥ 1 | Full | `validate_position`, `validate_positive_int` | `TestValidatePosition`, `test_rejects_an_array_size_below_one` |
@@ -110,10 +110,10 @@ CLI, LLD-06) are the only phases remaining.**
 | SRS-044 | Subtype and child kind matching | Full | `validate_subtype_matches_kind`, `validate_parent_kind` | `test_struct_element_requires_a_struct_parent`, `test_enum_value_requires_an_enum_parent` |
 | SRS-052, SRS-055 | Interface type; children match it | Full | `INTERFACE_TYPES`, `validate_child_interface_type` | `TestChildTypeMatching` |
 | SRS-059, SRS-061, SRS-063 | Argument direction, port direction, relationship type | Full | Vocabularies in `validation/port_interfaces.py` | `TestOperationArgument`, `TestPortPrototype`, `TestPortPrototypeFunction` |
-| SRS-069, SRS-072 | Member existence; ≥1 provider and ≥1 requester | Full | `validate_connection_complete` | `TestValidateConnectionComplete` |
+| SRS-069, SRS-072 | Member existence; ≥1 provider and ≥1 requester | **Partial** | `validate_connection_complete` is correct but is only invoked on member *update*; `create_port_connection` can leave an empty connection persisted — **defect D-01, §11** | `TestValidateConnectionComplete` |
 | SRS-070 | No duplicate prototype per connection | Full | Enforced by a schema UNIQUE constraint; the validator branch is defence in depth (DEV-37) | `test_a_duplicate_prototype_cannot_be_stored` |
-| SRS-074 | Typed polymorphic artifact reference | Full | `ARTIFACT_TYPE_FOR_TABLE`; `artifact_type` required alongside `artifact_unique_key` | `test_rejects_an_unknown_artifact_type`, `test_rejects_an_artifact_key_without_a_type` |
-| SRS-122 | Member mutation revalidates the connection transactionally | Full | `update_port_connection_member` revalidates inside its own transaction | `test_update_revalidates_the_whole_connection` |
+| SRS-074 | Typed polymorphic artifact reference | **Partial** | The pairing is enforced in one direction only; `artifact_type` without `artifact_unique_key` is accepted — **defect D-03, §11** | `test_rejects_an_unknown_artifact_type`, `test_rejects_an_artifact_key_without_a_type` |
+| SRS-122 | Member mutation revalidates the connection transactionally | **Partial** | `update_port_connection_member` revalidates; `create_port_connection_member` does not — **defect D-01, §11** | `test_update_revalidates_the_whole_connection` |
 | SRS-125 | Unverifiable compatibility creates an `incomplete` issue | Full | `create_compatibility_review_issue`, run through `CreateSpec.post_create` inside the create transaction so the connection and its issue commit together | `test_creates_and_records_the_compatibility_issue` |
 
 ---
@@ -236,9 +236,81 @@ Areas most worth independent scrutiny, in the order I would attack them:
 
 ---
 
+## 11. Defects Found in Acceptance Testing
+
+Independent acceptance testing on 2026-08-13 ran 60 cases against the Phase 3
+surface; 49 passed and 11 failed, resolving to three behavioural defects plus
+one architectural finding. All four were verified against LLD-02 and are real.
+
+Each is a case where a descriptor was written from a tool's **parameter table**
+without implementing the **algorithm** specified beneath it.
+
+### D-01 — `create_port_connection` is not atomic *(Critical)*
+
+**SRS:** SRS-069, SRS-070, SRS-072, SRS-084, SRS-122. **Failing cases:** 7.
+
+LLD-02 §7.5 makes `members` a **required** array and specifies a single
+transaction: insert the parent, insert all members, run
+`validate_connection_complete()`, roll back entirely on failure. §7.5 also
+requires `create_port_connection_member` to re-run that validation.
+
+The implementation accepts no `members` argument, creates an empty connection,
+and validates only on member *update*. An empty or provider-only connection —
+invalid under SRS-072 — therefore persists. `validate_connection_complete` is
+itself correct and tested; it is simply never called on the creation paths.
+
+**Files:** `src/r210_mcp/tools/port_connections.py`.
+
+### D-02 — array type references cannot be resolved *(High)*
+
+**SRS:** SRS-036a. **Failing cases:** 3.
+
+LLD-02 §7.2 steps 3–4 require `update_type_definition` to accept
+`subtype.element_type_key`, resolve it to
+`ArrayTypeDefinitions.element_type_id`, and resolve or reopen the associated
+`unresolved_reference` issue in the same transaction.
+
+The `UpdateSpec` carries no `subtype` argument, so an array created with an
+unresolved element type can never be resolved, its issue can never close, and
+the record can never pass the SRS-036a approval gate. The engine helper
+`sync_unresolved_issues` exists and works; the array path was never wired to it.
+
+**Files:** `src/r210_mcp/tools/type_definitions.py`.
+
+### D-03 — typed reference pairing is one-directional *(Medium)*
+
+**SRS:** SRS-074. **Failing cases:** 1.
+
+LLD-02 §7.6 step 2 requires `artifact_type` and `artifact_unique_key` to be
+**both set or both NULL**. The implementation rejects a key without a type but
+accepts a type without a key. The schema CHECK is also one-directional
+(`artifact_unique_key IS NULL OR artifact_type IS NOT NULL`), so neither guard
+catches it.
+
+**Files:** `src/r210_mcp/tools/review_issues.py`.
+
+### D-04 — `get_stats` executes SQL outside the DAL *(Architectural)*
+
+`tools/registry.py` issues `SELECT COUNT(*)` and a `GROUP BY` directly against
+the connection, contrary to the rule that all SQL belongs in the DAL. The table
+names come from a registry rather than caller input, so this is not an
+injection path, but it breaks the single-source-of-truth boundary Phases 1–3
+were built around.
+
+**Files:** `src/r210_mcp/tools/registry.py`.
+
+### Status
+
+Fixes are scheduled as the first deliverable of Phase 4
+(`docs/PHASE4_SCOPE.md` §3.0). Expected result on completion: 60 of 60
+acceptance cases passing, with the four rows above restored to **Full**.
+
+---
+
 ## Revision History
 
 | Version | Date       | Changes |
 |---------|------------|---------|
 | 1.0     | 2026-08-12 | Initial record of Phase 3 implementation. |
+| 1.2     | 2026-08-13 | Recorded four defects found in independent acceptance testing (§11) and downgraded SRS-069/072, SRS-122, SRS-036a and SRS-074 from Full to Partial. |
 | 1.1     | 2026-08-12 | Tightened SRS-015a(c): a create or update now returns only `unique_key`, warnings and demoted keys to an extraction-mode caller, matching LLD-02 §11.2 (DEV-38). Updated counts to 590. Source document is now LLD-02 v1.5, into which DEV-25 through DEV-38 are incorporated. |
