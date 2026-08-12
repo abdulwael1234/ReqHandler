@@ -830,16 +830,15 @@ class DataAccessLayer:
         """Write a review state.
 
         Whether the transition is permitted is not decided here — that is the
-        validation layer's job (SRS-035b). This rejects only the structurally
-        impossible: a table with no `status` column, or a `review_note` on a
-        reviewable child, which by SRS-035a carries state but no note column.
+        validation layer's job (SRS-035b). A `review_note` is silently ignored
+        when the table has no such column, as required by SRS-091a.
         """
         self._check_table(table)
         columns = TABLE_COLUMNS[table]
         if "status" not in columns:
             raise ValueError(f"{table} has no status column")
-        if review_note is not None and "review_note" not in columns:
-            raise ValueError(f"{table} has no review_note column")
+        if "review_note" not in columns:
+            review_note = None
 
         if review_note is None:
             conn.execute(

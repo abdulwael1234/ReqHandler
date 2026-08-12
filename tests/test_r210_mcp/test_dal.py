@@ -211,14 +211,17 @@ class TestCrossCutting:
         assert record is not None
         assert record.status == "approved"
 
-    def test_update_status_rejects_a_note_on_a_table_without_the_column(
+    def test_update_status_ignores_a_note_on_a_table_without_the_column(
         self, conn: sqlite3.Connection, dal: DataAccessLayer, seeded: dict[str, int]
     ) -> None:
-        """SRS-035a gives reviewable children a state but no note column."""
-        with pytest.raises(ValueError, match="review_note"):
-            dal.update_status(
-                conn, "StructElements", seeded["StructElements"], "approved", "note"
-            )
+        """SRS-091a silently ignores notes for tables without a note column."""
+        dal.update_status(
+            conn, "StructElements", seeded["StructElements"], "approved", "ignored note"
+        )
+
+        record = dal.get_struct_element_by_key(conn, "se-1")
+        assert record is not None
+        assert record.status == "approved"
 
     def test_update_status_rejects_a_table_without_status(
         self, conn: sqlite3.Connection, dal: DataAccessLayer, seeded: dict[str, int]

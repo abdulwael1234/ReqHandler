@@ -442,27 +442,31 @@ callers from repeating it.
 
 ---
 
-### DEV-22 — `update_status` rejects structurally impossible writes *(Refinement)*
+### DEV-22 — `update_status` handles structural column differences *(Refinement)*
 
 **Implementation:** `update_status` raises `ValueError` when the target table
-has no `status` column, or when a `review_note` is supplied for a table that
-has no such column.
+has no `status` column. When `review_note` is supplied for a reviewable child
+table that has no such column, the note is silently ignored as required by
+SRS-091a and the status is still updated.
 
 **Rationale:** SRS-035a gives the seven reviewable child types a review state
 but no note column, and gives the two structural subtype tables neither. These
-are schema facts, not review policy, so catching them here produces a clear
-error instead of a confusing SQL failure. Whether a *transition* is permitted
+are schema facts, not review policy. Rejecting a table without any state avoids
+a confusing SQL failure; ignoring an inapplicable note preserves SRS-091a's
+uniform `set_review_status` behavior. Whether a *transition* is permitted
 (SRS-035b) remains the validation layer's decision in Phase 3.
 
 ---
 
 ### DEV-23 — `McpError` and `McpResult` field defaults *(Refinement)*
 
-**Implementation:** `field`, `affected_key`, and `resolution` default to `None`;
-`data` and `warnings` use `default_factory`. Both dataclasses are frozen.
+**Implementation:** `McpError.field` and `McpError.affected_key` default to
+`None`; `reason` is a required keyword argument. `McpResult.data` and
+`McpResult.warnings` use `default_factory`. Both dataclasses are frozen.
 
 **Rationale:** LLD-02 §3.1–3.2 shows no defaults, but most errors carry no
-field name and most results carry no warnings. Mutable defaults require
+field name and most results carry no warnings. Every error must still supply
+the human-readable reason required by SRS-109. Mutable defaults require
 `default_factory` in any case.
 
 ---
@@ -506,7 +510,7 @@ supplies only the lookup. Recorded so the split is not mistaken for an omission.
 | DEV-19 | Addition | Column registry derived from dataclasses | Phase 2 — pending review |
 | DEV-20 | Refinement | `schema_version` outside the DAL surface | Phase 2 — pending review |
 | DEV-21 | Refinement | Default arguments on `insert_*` | Phase 2 — pending review |
-| DEV-22 | Refinement | `update_status` structural checks | Phase 2 — pending review |
+| DEV-22 | Refinement | `update_status` structural column handling | Phase 2 — pending review |
 | DEV-23 | Refinement | `McpError` / `McpResult` field defaults | Phase 2 — pending review |
 | DEV-24 | Boundary | SRS-034 normalization deferred to Phase 6 | Phase 2 — pending review |
 | DEV-O-01 | Resolved decision | Report-only behavior for damaged current-version schema | Approved; incorporated into SRS v5.3 |

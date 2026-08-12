@@ -149,6 +149,8 @@ attempting exhaustive coverage:
 - `tests/test_r210_mcp/test_dal.py` — round-trip insert → get for every table
   in the registry, the cross-cutting five, deterministic ordering, and
   identifier rejection.
+- `tests/test_r210_mcp/test_errors.py` — the structured error reason is
+  mandatory (SRS-109).
 
 Tests run against a real initialized SQLite database through the existing
 `initialized_db` fixture in `tests/conftest.py`.

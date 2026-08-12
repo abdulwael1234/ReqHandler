@@ -12,7 +12,7 @@
 | **Companion**        | `docs/DEVIATIONS_FROM_REQUIREMENTS.md` §4A (DEV-17–DEV-24)   |
 | **Design**           | `docs/superpowers/specs/2026-08-12-phase2-data-access-layer-design.md` |
 | **Predecessor**      | `docs/PHASE1_IMPLEMENTED_REQUIREMENTS.md`                    |
-| **Status**           | Complete — 215 tests passing, ruff clean, mypy strict clean  |
+| **Status**           | Complete — 216 tests passing, ruff clean, mypy strict clean  |
 
 ---
 
@@ -79,7 +79,7 @@ paths, so a failed operation leaks no handle — verified by
 | SRS-036, SRS-036a | Unresolved type references stored as `NULL` and queryable | Full | `element_type_id` / `type_definition_id` / `port_interface_id` accept `None`; a `None` filter compiles to `IS NULL`, not `= NULL` | `test_none_filter_matches_null_not_nothing` |
 | SRS-037, SRS-108 | Deterministic ordering via `position` | Full | `_order_by` sorts ordered child tables by `(parent_fk, position)`, all others by `id`, derived from `CHILD_PARENT_MAP` | `test_children_are_ordered_by_parent_then_position`, `test_get_connection_members_are_position_ordered` |
 | SRS-035 | Five review states supported | Mechanism | `update_status` writes any state the schema's CHECK accepts | `test_update_status_sets_state_and_note` — *transition rules are Phase 3* |
-| SRS-035a | Reviewable children carry state; subtypes carry none | Full | `update_status` rejects a `status` write to a subtype table and a `review_note` on a child table | `test_update_status_rejects_a_table_without_status`, `test_update_status_rejects_a_note_on_a_table_without_the_column` |
+| SRS-035a, SRS-091a | Reviewable children carry state; subtypes carry none; inapplicable notes are ignored | Full | `update_status` rejects a status write to a subtype table and silently ignores `review_note` for a child table without that column | `test_update_status_rejects_a_table_without_status`, `test_update_status_ignores_a_note_on_a_table_without_the_column` |
 | SRS-035b | Permitted status transitions | Mechanism | Not enforced here by design | *Enforcement is Phase 3 (LLD-02 §6.2)* |
 | SRS-038a | Exactly one subtype detail row per `TypeDefinitions` parent | Mechanism | `get_simple_type_definition_by_parent`, `get_array_type_definition_by_parent` resolve the row; `UNIQUE` enforces the cardinality | `test_every_table_round_trips` — *"required in the same operation" is Phase 4* |
 | SRS-046, SRS-053 | Parent approval depends on child states | Mechanism | `get_children_statuses` | `test_get_children_statuses` — *the blocking rule is Phase 4* |
@@ -94,7 +94,7 @@ paths, so a failed operation leaks no handle — verified by
 | SRS | Requirement (abridged) | Status | Implementation | Verified by |
 |-----|------------------------|--------|----------------|-------------|
 | SRS-083 | Invalid inputs rejected with the field and reason | Mechanism | `McpError(operation, field, reason, affected_key)` | *Input validation is Phase 3; Phase 2 supplies the shape* |
-| SRS-109 | Errors report operation, field, reason, and affected identity | Full | `McpError.to_dict()` emits all four keys, `None` where absent | Structure of `errors.py` |
+| SRS-109 | Errors report operation, field, reason, and affected identity | Full | `McpError` requires `reason`; `to_dict()` emits all four keys | `test_mcp_error_requires_a_reason`; structure of `errors.py` |
 
 Constraint violations are deliberately **not** translated inside the DAL.
 `sqlite3.IntegrityError` propagates to the caller, which is the layer that
@@ -130,10 +130,11 @@ public ones carry explicit signatures, so Phase 3 call sites remain checkable un
 ## 7. Verification Summary
 
 ```
-215 tests passing (173 from Phase 1, 42 added)
+216 tests passing (173 from Phase 1, 43 added)
   11  test_connection.py  — pragmas, commit, rollback, connection closure
   31  test_dal.py         — registries, round-trip, query, cross-cutting,
                             identifier allowlist, constraint propagation
+   1  test_errors.py      — required structured-error reason
 
 ruff check src tests   → All checks passed
 mypy (strict) src      → Success: no issues found in 59 source files
@@ -147,8 +148,8 @@ should be treated as a starting point rather than a completed test campaign.
 
 Note: `mypy` on `tests/` reports 36 pre-existing errors in the Phase 1 test
 files (missing annotations, `int | None` assignments). These are untouched by
-Phase 2 — the two new test modules type-check clean under
-`MYPYPATH=src mypy tests/test_r210_mcp/test_dal.py tests/test_r210_mcp/test_connection.py`.
+Phase 2 — the three new test modules type-check clean under
+`MYPYPATH=src mypy tests/test_r210_mcp/test_dal.py tests/test_r210_mcp/test_connection.py tests/test_r210_mcp/test_errors.py`.
 Phase 1's recorded gate was `mypy` over sources only.
 
 ### Running the tests

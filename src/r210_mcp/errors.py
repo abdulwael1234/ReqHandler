@@ -9,7 +9,8 @@ All MCP tools return errors using the McpError dataclass, which provides:
 See: LLD-02 §3.1 (Error Response — SRS-083, SRS-109), §3.2 (Success Response)
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from typing import Any
 
 
@@ -19,7 +20,7 @@ class McpError:
 
     operation: str
     field: str | None = None
-    reason: str = ""
+    reason: str = dataclass_field(kw_only=True)
     affected_key: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -39,9 +40,9 @@ class McpResult:
 
     unique_key: str
     # Additional fields relevant to the operation.
-    data: dict[str, Any] = field(default_factory=dict)
+    data: dict[str, Any] = dataclass_field(default_factory=dict)
     # Duplicate-detection warnings (SRS-034, SRS-121).
-    warnings: list[str] = field(default_factory=list)
+    warnings: list[str] = dataclass_field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {"unique_key": self.unique_key, **self.data}
