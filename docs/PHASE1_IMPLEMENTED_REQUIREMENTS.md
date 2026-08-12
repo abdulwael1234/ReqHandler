@@ -195,7 +195,14 @@ issue, not a defect in the code or configuration.
 ## 9. What Phase 1 Deliberately Does Not Do
 
 These requirements are assigned by the SRS/LLD to the MCP tool boundary or the
-generator, and are correctly absent from Phase 1:
+generator, and are correctly absent from Phase 1.
+
+> **Superseded numbering (2026-08-12).** The phase column below reflects the
+> eight-phase map as it stood at Phase 1. Phase 3 subsequently absorbed Phases
+> 4–6, because LLD-02 §7.7 and §10.1 call that machinery from Phase 3 handlers
+> and the split was not implementable in order (DEV-33, approved). Everything
+> below marked Phase 3, 4, 5 or 6 was delivered in Phase 3; see
+> `docs/PHASE3_IMPLEMENTED_REQUIREMENTS.md`. Phases 7 and 8 are unchanged.
 
 | SRS | Requirement | Owning phase |
 |-----|-------------|--------------|

@@ -5,11 +5,11 @@
 | Field              | Value                                                    |
 |--------------------|----------------------------------------------------------|
 | **Document ID**    | R210-LLD-02                                              |
-| **Version**        | 1.4                                                      |
+| **Version**        | 1.5                                                      |
 | **Date**           | 2026-08-12                                               |
 | **Component**      | Python MCP Server                                        |
 | **Source Documents**| R210-SRS-001 v5.4, R210-HLD-001 v3.4, R210-LLD-01 v1.1 |
-| **Status**         | Draft                                                    |
+| **Status**         | Implemented — aligned with the Phase 3 code base         |
 
 ---
 
@@ -311,18 +311,35 @@ class DataAccessLayer:
 
 ### 6.1 Common Validators (`validation/common.py`)
 
+Every validator takes a keyword-only `operation` — the tool name — and an
+optional `affected_key`. SRS-109 requires an error to identify the failing
+operation, so a validator that never receives the tool name cannot construct a
+compliant `McpError` (DEV-34). All of them raise `McpValidationError`.
+
 ```python
-def validate_uuid_format(value: str, field_name: str) -> None:
-    """Raise McpError if value is not a valid UUID string."""
+def validate_not_empty(value: Any, field: str, *, operation: str,
+                       affected_key: str | None = None) -> None:
+    """Raise if value is not a string, or is empty after stripping."""
 
-def validate_status(value: str, valid_set: frozenset[str], field_name: str) -> None:
-    """Raise McpError if value is not in the valid status set."""
+def validate_uuid_format(value: Any, field: str, *, operation: str,
+                         affected_key: str | None = None) -> None:
+    """Raise if value is not a valid UUID string (SRS-027)."""
 
-def validate_position(value: Any, field_name: str) -> None:
-    """Raise McpError if value is not an integer ≥ 1 (SRS-038b)."""
+def validate_choice(value: Any, permitted: frozenset[str], field: str, *,
+                    operation: str, affected_key: str | None = None) -> None:
+    """Raise if value is outside the permitted set, naming the permitted values."""
 
-def validate_not_empty(value: Any, field_name: str) -> None:
-    """Raise McpError if value is None or empty string."""
+def validate_position(value: Any, field: str, *, operation: str,
+                      affected_key: str | None = None) -> None:
+    """Raise if value is not an integer >= 1 (SRS-038b). bool is not an int here."""
+
+def validate_positive_int(value: Any, field: str, *, operation: str,
+                          affected_key: str | None = None) -> None:
+    """Raise if value is not an integer >= 1 — array_size (SRS-038b)."""
+
+def validate_artifact_type(value: str | None, field: str, *, operation: str,
+                           affected_key: str | None = None) -> None:
+    """Raise if value is not one of the 11 permitted artifact types or None."""
 
 def normalize_name(name: str) -> str:
     """Normalize for duplicate detection (SRS-034):
@@ -331,59 +348,88 @@ def normalize_name(name: str) -> str:
     3. Return lowercase
     """
     return re.sub(r'\s+', ' ', name.strip()).lower()
-
-def validate_artifact_type(value: Optional[str], field_name: str) -> None:
-    """Raise McpError if value is not in the 11 permitted artifact types or None."""
 ```
+
+`validate_choice` replaces the `validate_status` of earlier revisions: status,
+kind, interface type, direction and relationship type are all
+membership checks over a frozenset, and one validator serves them all. The
+engine binds a set to it with `choice_of(permitted)` (§7).
 
 ### 6.2 Status Transition Validator (`validation/status.py`)
 
-```python
-def validate_artifact_transition(current: str, requested: str) -> None:
-    """Raise McpError if the transition is not permitted per SRS-035b."""
-    if requested not in ARTIFACT_TRANSITIONS.get(current, frozenset()):
-        raise McpValidationError(...)
+Records returned by the DAL are frozen dataclasses, not `sqlite3.Row` (LLD-02
+§3.3, DEV-17), so this layer uses attribute access throughout (DEV-29).
 
-def validate_issue_transition(current: str, requested: str) -> None:
-    """Raise McpError if the transition is not permitted per SRS-035b."""
+```python
+INITIAL_STATUSES = frozenset({"pending_review", "ambiguous", "out_of_scope"})
+
+# The four cross-artifact type references SRS-036a allows to stay NULL.
+UNRESOLVED_REFERENCE_COLUMNS: dict[str, str] = {
+    "ArrayTypeDefinitions":  "element_type_id",
+    "StructElements":        "element_type_id",
+    "InterfaceDataElements": "type_definition_id",
+    "OperationArguments":    "type_definition_id",
+}
+
+def validate_artifact_transition(current, requested, *, operation,
+                                 affected_key=None, field="new_status") -> None:
+    """Raise McpValidationError if the transition is not permitted (SRS-035b)."""
+
+def validate_issue_transition(current, requested, *, operation,
+                              affected_key=None, field="new_status") -> None:
+    """Raise if the review-issue transition is not permitted (SRS-035b).
+
+    `field` is caller-chosen: set_review_status names its argument
+    `new_status`, update_review_issue names it `status`, and SRS-109 requires
+    the error to name the field the caller actually supplied.
+    """
 
 def check_parent_can_be_approved(conn, dal, parent_table, parent_id) -> list[dict]:
-    """Return list of non-approved children if parent is being set to 'approved'.
-    Excludes rejected children from evaluation (SRS-092a).
-    Returns empty list if all non-rejected children are approved."""
+    """Children blocking approval of this parent (SRS-046, SRS-053).
+
+    Rejected children are excluded (SRS-092a). Empty list means clear.
+    """
     blockers = []
-    for child_rel in PARENT_CHILD_MAP.get(parent_table, []):
+    for relation in PARENT_CHILD_MAP.get(parent_table, []):
         statuses = dal.get_children_statuses(
-            conn, child_rel.child_table, child_rel.fk_column, parent_id
+            conn, relation.child_table, relation.fk_column, parent_id
         )
-        for child_status in statuses:
-            if child_status != "approved" and child_status != "rejected":
-                blockers.append({
-                    "child_table": child_rel.child_table,
-                    "status": child_status,
-                })
+        for status in statuses:
+            if status not in ("approved", "rejected"):
+                blockers.append({"child_table": relation.child_table,
+                                 "status": status})
     return blockers
 
 def auto_demote_parent_chain(conn, dal, child_table, child_id) -> list[str]:
-    """If the child's parent is 'approved', demote it to 'pending_review'.
-    Walk the grandparent chain (SRS-035c).
-    Returns list of demoted parent unique_keys for reporting."""
+    """Demote every approved ancestor to 'pending_review' (SRS-035c).
+
+    Walks the whole chain rather than stopping at the first non-approved
+    ancestor: a grandparent may be approved while the parent is not.
+    Returns the demoted unique_keys, for reporting in the tool response.
+    """
     demoted = []
-    current_table = child_table
-    current_id = child_id
+    current_table, current_id = child_table, child_id
     while current_table in CHILD_PARENT_MAP:
-        rel = CHILD_PARENT_MAP[current_table]
-        parent = dal.get_parent_record(conn, rel.parent_table, current_table,
-                                        rel.fk_column, current_id)
-        if parent is None:
+        found = dal.get_parent_record(conn, current_table, current_id)
+        if found is None:
             break
-        if parent["status"] == "approved":
-            dal.update_status(conn, rel.parent_table, parent["id"],
-                              "pending_review", None)
-            demoted.append(parent["unique_key"])
-        current_table = rel.parent_table
-        current_id = parent["id"]
+        parent_table, parent = found
+        if parent.status == "approved":
+            dal.update_status(conn, parent_table, parent.id, "pending_review", None)
+            demoted.append(parent.unique_key)
+        current_table, current_id = parent_table, parent.id
     return demoted
+
+def check_references_resolved(conn, dal, table, record) -> list[str]:
+    """Columns still NULL that SRS-036a requires resolved before approval.
+
+    SRS-036a states that a record with an unresolved type reference shall not
+    be approved or exported. This is the approval half; the export half belongs
+    to the generator (LLD-04). A TypeDefinitions record of kind 'array' carries
+    its reference on the ArrayTypeDefinitions detail row, which is not
+    independently reviewable (SRS-035a), so approving the parent checks the
+    child's column (DEV-27).
+    """
 ```
 
 ### 6.3 Type Definition Validators (`validation/type_definitions.py`)
@@ -435,9 +481,13 @@ def validate_direction(value: str) -> None:
 ### 6.5 Port Connection Validators (`validation/port_connections.py`)
 
 ```python
-def validate_connection_complete(conn, dal, connection_id: int) -> list[McpError]:
+def validate_connection_complete(conn, dal, connection_id: int, *, operation: str) -> None:
     """Full connection validation (SRS-122). Called on every member mutation.
-    Checks all four rules and returns a list of errors (empty = valid).
+
+    Raises McpValidationError on the first failure rather than returning a
+    list: a partially-valid connection must not be committed, and the caller's
+    `transaction()` rolls back on the exception (§10.3). Returning errors would
+    leave the caller to remember to abort.
 
     1. Member existence — every port_prototype_id exists (SRS-069)
     2. No duplicates — no repeated port_prototype_id (SRS-070)
@@ -449,7 +499,14 @@ def check_member_existence(conn, dal, members: list[Row]) -> list[McpError]:
     """SRS-069: verify all port_prototype_ids exist."""
 
 def check_no_duplicate_members(members: list[Row]) -> list[McpError]:
-    """SRS-070: verify no repeated port_prototype_id within the connection."""
+    """SRS-070: verify no repeated port_prototype_id within the connection.
+
+    Defence in depth only. LLD-01 V001 places a UNIQUE constraint on
+    (port_connection_id, port_prototype_id), so a duplicate member cannot be
+    stored through the DAL at all — the schema is the real enforcement point
+    (DEV-37). The branch is retained for rows arriving another way and must not
+    be mistaken for dead code.
+    """
 
 def check_direction_cardinality(conn, dal, members: list[Row]) -> list[McpError]:
     """SRS-072: verify ≥1 provider and ≥1 requester."""
@@ -464,10 +521,11 @@ def create_compatibility_review_issue(conn, dal, connection_key: str,
 
 ## 7. Tool Handler Implementations
 
-Each tool handler follows this pattern:
+Each tool handler is a module-level function taking a `ToolContext` and the
+argument dict, and returning a response dict:
 
 ```python
-def handle_<tool_name>(arguments: dict) -> dict:
+def handle_<tool_name>(ctx: ToolContext, arguments: dict) -> dict:
     """
     1. Validate inputs (validation layer)
     2. Open transaction (connection.transaction())
@@ -475,9 +533,40 @@ def handle_<tool_name>(arguments: dict) -> dict:
     4. Check duplicate detection (if create operation)
     5. Execute DAL operations
     6. Auto-demote parents if needed
-    7. Return McpResult or raise McpError
+    7. Return McpResult or raise McpValidationError
     """
 ```
+
+`ToolContext` is a frozen dataclass carrying the connection factory, the DAL
+and `adapter_mode`. Handlers are functions rather than methods on the server so
+that the Local Review CLI can call them directly as LLD-06 requires, and so
+that a handler is reachable without the MCP SDK installed (DEV-26).
+
+Steps 2–6 are identical for the 13 create, 13 update and 6 query tools, differing
+only by table and field list. They are therefore expressed as frozen
+descriptors — `CreateSpec`, `UpdateSpec`, `QuerySpec` — executed by
+`run_create`, `run_update` and `run_query` in `tools/_engine.py` (DEV-32). Each
+cross-cutting rule then has exactly one implementation:
+
+| Rule | SRS | Home in `_engine.py` |
+|------|-----|----------------------|
+| `status` rejected by update tools | SRS-091a | `reject_status_argument` |
+| Unknown argument rejected | SRS-083 | `reject_unknown_arguments` |
+| Creation-time status restricted | SRS-035a | `initial_status` |
+| Key resolved to id; NULL permitted | SRS-036a | `resolve_refs` |
+| Unresolved reference raises an issue | SRS-036a | `create_unresolved_issue` |
+| Reference issue follows the reference | SRS-036a | `sync_unresolved_issues` |
+| Content-change demotion | SRS-082b | `demote_if_approved` |
+| Parent demotion on child creation | SRS-035c | `demote_parent_on_child_creation` |
+
+`CreateSpec.post_create` runs inside the create transaction, so a tool whose
+requirement pairs a record with a `ReviewIssue` commits both or neither — used
+by `create_port_connection` for SRS-125.
+
+Four tools are irregular and are written out rather than described by a
+descriptor: `create_type_definition` (§7.2, writes a parent, a subtype row and
+N children), `set_review_status` (§7.7), `update_port_connection_member`
+(§10.3) and `resolve_reference` (§7.8).
 
 ### 7.1 Source Requirement Tools
 
@@ -776,7 +865,7 @@ This is the sole mechanism for changing artifact, reviewable-child, and `SourceR
 | Parameter    | Type   | Required | Validation                              |
 |-------------|--------|----------|-----------------------------------------|
 | `unique_key` | string | Yes      | Valid UUID, record exists                |
-| `table_hint` | string | Yes      | Table name to search                    |
+| `table_hint` | string | No       | Accepted and ignored. `resolve_unique_key` finds the owning table, and keys are UUIDs unique across the database (SRS-027), so a required hint adds no information while introducing a second source of truth that can disagree with the first (DEV-35). |
 | `new_status` | string | Yes      | Valid reviewable-record status (SRS-035) |
 | `review_note`| string | No       | Stored only when the target table has a `review_note` column; silently ignored otherwise |
 | `caller`     | string | Yes      | `"extraction"` when called from Gemini skill; `"review"` for manual review. The server validates this against its configured adapter mode (set at construction time) — an adapter constructed in extraction mode rejects `caller="review"` and vice versa, preventing parameter forgery. |
@@ -794,9 +883,12 @@ This is the sole mechanism for changing artifact, reviewable-child, and `SourceR
    → raise McpError("Structural subtype tables do not have a status field")
 5. Validate transition: current status → new_status (SRS-035b, ARTIFACT_TRANSITIONS)
 6. If new_status == "approved":
-   a. If self._adapter_mode == "extraction" → raise McpError(
+   a. If ctx.adapter_mode == "extraction" → raise McpError(
       "Approval is reserved for manual review (SRS-082a)")
-   b. If table is a parent table:
+   b. check_references_resolved(conn, dal, table, record)
+      — SRS-036a: a record with an unresolved type reference is not approvable.
+      If any column is still NULL → raise McpError naming the columns.
+   c. If table is a parent table:
       check_parent_can_be_approved(conn, dal, table, record.id)
       — Excludes rejected children from evaluation (SRS-046, SRS-053, SRS-092a)
       If blockers found → raise McpError listing non-approved children
@@ -843,6 +935,12 @@ When approving a parent, query all children. Exclude children with `status = "re
 
 This tool delegates to the Generator component — see LLD-04 for the generation logic.
 
+**Current state.** The generator is delivered in a later phase. Step 1 is
+implemented; steps 2–3 are not. The tool is registered and validates `mode`, so
+the contract is real, and returns a structured `McpError` stating that
+generation is not yet implemented rather than reporting a success that did not
+happen (DEV-31). No caller need change when the generator lands.
+
 ---
 
 ## 8. Duplicate Detection (`duplicate_detection.py`)
@@ -858,146 +956,175 @@ def check_for_duplicates(conn, dal, table: str, name: str,
     3. Normalize each existing name and compare
     4. Return list of potential duplicates with unique_key and name
     """
-    normalized = normalize_name(name)
-    candidates = dal.find_duplicates_by_name(conn, table, normalized, kind)
+    target = normalize_name(name)
+    filters = {"kind": kind} if kind is not None else None
     return [
-        {"unique_key": c["unique_key"], "name": c["name"]}
-        for c in candidates
-        if normalize_name(c["name"]) == normalized
+        {"unique_key": r.unique_key, "name": r.name}
+        for r in dal.query_table(conn, table, filters)
+        if normalize_name(r.name) == target
     ]
 ```
 
+**Why the candidate set is not the indexed lookup (DEV-36).** Earlier revisions
+drew candidates from `dal.find_duplicates_by_name`, which matches
+`name = ? COLLATE NOCASE` against the indexes V001 creates. That covers case but
+not whitespace: a stored `"Vehicle  Speed"` never comes back for a query of
+`"Vehicle Speed"`, so there is nothing for step 3 to normalize. Post-filtering
+cannot widen an exact-match query. SRS-034 requires normalization on *both*
+sides of the comparison, and SRS-113 rules out performance optimization for the
+prototype, so correctness against the requirement is chosen over the index.
+`find_duplicates_by_name` remains in the DAL and is still correct for the
+case-insensitive exact match; it is simply not sufficient alone for SRS-034.
+
 ---
 
-## 9. MCP Server Entry Point (`server.py`)
+## 9. Tool Registry and MCP Server Entry Point
+
+The entry point is split across two modules. `tools/registry.py` owns the tool
+table and dispatch and imports no SDK; `server.py` is a thin adapter that binds
+a database path and an authority mode to it and imports `mcp` lazily inside
+`run()` (DEV-26). Two requirements force the split: LLD-06 requires the Local
+Review CLI to invoke handlers without the MCP protocol, and the SDK is not
+installed in the development environment, so a design whose handlers are
+reachable only through an SDK-importing class cannot be tested.
+
+### 9.1 `tools/context.py`
+
+```python
+VALID_ADAPTER_MODES = frozenset({"extraction", "review"})
+
+@dataclass(frozen=True)
+class ToolContext:
+    """A connection factory, the DAL, and the adapter's authority."""
+    db: DatabaseConnection
+    dal: DataAccessLayer
+    adapter_mode: str
+
+def build_context(db_path: str, adapter_mode: str = "extraction") -> ToolContext:
+    """Construct a context, defaulting to the mode that cannot approve.
+
+    Raises ValueError — an invalid mode is a wiring error at construction
+    time, never caller-supplied tool input.
+    """
+```
+
+`adapter_mode` binds the server's authority at construction (SRS-082a). Under
+`"extraction"` approval transitions are structurally forbidden and responses are
+projected per §11; under `"review"` approval is permitted and full records are
+returned.
+
+### 9.2 `tools/registry.py`
+
+```python
+TOOL_HANDLERS: dict[str, ToolHandler] = {
+    "create_source_requirement": handle_create_source_requirement,
+    "update_source_requirement": handle_update_source_requirement,
+    "query_source_requirements": handle_query_source_requirements,
+    "create_type_definition": handle_create_type_definition,
+    "update_type_definition": handle_update_type_definition,
+    "query_type_definitions": handle_query_type_definitions,
+    "create_struct_element": handle_create_struct_element,
+    "update_struct_element": handle_update_struct_element,
+    "create_enum_value": handle_create_enum_value,
+    "update_enum_value": handle_update_enum_value,
+    "create_port_interface": handle_create_port_interface,
+    "update_port_interface": handle_update_port_interface,
+    "query_port_interfaces": handle_query_port_interfaces,
+    "create_interface_data_element": handle_create_interface_data_element,
+    "update_interface_data_element": handle_update_interface_data_element,
+    "create_client_server_operation": handle_create_client_server_operation,
+    "update_client_server_operation": handle_update_client_server_operation,
+    "create_operation_argument": handle_create_operation_argument,
+    "update_operation_argument": handle_update_operation_argument,
+    "create_port_prototype": handle_create_port_prototype,
+    "update_port_prototype": handle_update_port_prototype,
+    "query_port_prototypes": handle_query_port_prototypes,
+    "create_port_prototype_function": handle_create_port_prototype_function,
+    "update_port_prototype_function": handle_update_port_prototype_function,
+    "create_port_connection": handle_create_port_connection,
+    "update_port_connection": handle_update_port_connection,
+    "query_port_connections": handle_query_port_connections,
+    "create_port_connection_member": handle_create_port_connection_member,
+    "update_port_connection_member": handle_update_port_connection_member,
+    "create_review_issue": handle_create_review_issue,
+    "update_review_issue": handle_update_review_issue,
+    "query_review_issues": handle_query_review_issues,
+    "set_review_status": handle_set_review_status,
+    "resolve_reference": handle_resolve_reference,
+    "trigger_generation": handle_trigger_generation,
+}
+}
+
+def dispatch(ctx: ToolContext, tool_name: str, arguments: dict) -> dict:
+    """Run a tool by name, returning a response rather than raising.
+
+    This is the single boundary where an exception becomes a response:
+
+      McpValidationError   -> error.to_dict()
+      sqlite3.IntegrityError -> McpError naming the tool and the affected key
+      ValueError from the DAL -> propagates; it is a programming error
+
+    Translating IntegrityError here is what LLD-02 §5.1 deferred to: only this
+    layer knows the operation name and the affected unique_key that SRS-109
+    requires, which is why the DAL deliberately does not catch it.
+
+    Projection (§11) is also applied here, once, so that no handler can omit
+    it (DEV-30).
+    """
+
+def _returns_records_to_extraction(tool_name: str) -> bool:
+    """Whether SRS-015a(b) lets this tool return record fields to extraction.
+
+    True for query_* and resolve_reference; False for everything else.
+    """
+```
+
+### 9.3 Non-MCP surface (LLD-06)
+
+Free functions over a `ToolContext`, for the Local Review CLI:
+
+```python
+def query_by_table(ctx, table: str, filters: dict | None = None) -> list[dict]:
+    """Query a table that has no dedicated query tool (child tables)."""
+
+def get_children_for_display(ctx, table: str, record_id: int) -> list[dict]:
+    """Load child records for a parent record, via PARENT_CHILD_MAP."""
+
+def get_stats(ctx) -> dict:
+    """Row and status counts per table.
+
+    Table names come from TABLE_RECORD_MAP minus `schema_version`, and the
+    status split from STRUCTURAL_SUBTYPE_TABLES, so a table added by a future
+    migration is counted without editing a second list.
+    """
+```
+
+### 9.4 `server.py`
 
 ```python
 class R210McpServer:
-    """MCP server main class. Registers all tools and dispatches calls.
+    """Binds a database and an authority mode to the tool surface (SRS-082a)."""
 
-    The adapter_mode parameter binds the server's authority at construction
-    time (SRS-082a). When adapter_mode="extraction" (Gemini workflow),
-    approval transitions are structurally forbidden and query results are
-    projected per §11. When adapter_mode="review" (Local Review CLI),
-    approval is permitted and full records are returned.
-    """
+    def __init__(self, db_path: str, adapter_mode: str = "extraction") -> None:
+        self._ctx = build_context(db_path, adapter_mode)
 
-    VALID_MODES = frozenset({"extraction", "review"})
+    @property
+    def adapter_mode(self) -> str: ...
 
-    def __init__(self, db_path: str, adapter_mode: str = "extraction"):
-        if adapter_mode not in self.VALID_MODES:
-            raise ValueError(f"adapter_mode must be one of {self.VALID_MODES}")
-        self._adapter_mode = adapter_mode
-        self._db = DatabaseConnection(db_path)
-        self._dal = DataAccessLayer()
-        self._mcp = McpServer("r210-automation")
-        self._register_tools()
-
-    def _register_tools(self):
-        """Register all MCP tools with the server."""
-        self._tools = tools = {
-            "create_source_requirement": self._handle_create_source_requirement,
-            "update_source_requirement": self._handle_update_source_requirement,
-            "query_source_requirements": self._handle_query_source_requirements,
-            "create_type_definition": self._handle_create_type_definition,
-            "update_type_definition": self._handle_update_type_definition,
-            "query_type_definitions": self._handle_query_type_definitions,
-            "create_struct_element": self._handle_create_struct_element,
-            "update_struct_element": self._handle_update_struct_element,
-            "create_enum_value": self._handle_create_enum_value,
-            "update_enum_value": self._handle_update_enum_value,
-            "create_port_interface": self._handle_create_port_interface,
-            "update_port_interface": self._handle_update_port_interface,
-            "query_port_interfaces": self._handle_query_port_interfaces,
-            "create_interface_data_element": self._handle_create_interface_data_element,
-            "update_interface_data_element": self._handle_update_interface_data_element,
-            "create_client_server_operation": self._handle_create_client_server_operation,
-            "update_client_server_operation": self._handle_update_client_server_operation,
-            "create_operation_argument": self._handle_create_operation_argument,
-            "update_operation_argument": self._handle_update_operation_argument,
-            "create_port_prototype": self._handle_create_port_prototype,
-            "update_port_prototype": self._handle_update_port_prototype,
-            "query_port_prototypes": self._handle_query_port_prototypes,
-            "create_port_prototype_function": self._handle_create_port_prototype_function,
-            "update_port_prototype_function": self._handle_update_port_prototype_function,
-            "create_port_connection": self._handle_create_port_connection,
-            "update_port_connection": self._handle_update_port_connection,
-            "query_port_connections": self._handle_query_port_connections,
-            "create_port_connection_member": self._handle_create_port_connection_member,
-            "update_port_connection_member": self._handle_update_port_connection_member,
-            "create_review_issue": self._handle_create_review_issue,
-            "update_review_issue": self._handle_update_review_issue,
-            "query_review_issues": self._handle_query_review_issues,
-            "set_review_status": self._handle_set_review_status,
-            "resolve_reference": self._handle_resolve_reference,
-            "trigger_generation": self._handle_trigger_generation,
-        }
-        for name, handler in tools.items():
-            self._mcp.register_tool(name, handler)
-
-    def run(self):
-        """Start the MCP server on stdio transport."""
-        self._mcp.run(transport="stdio")
-
-    # ── Public interface for non-MCP callers (e.g., Local Review CLI) ──
+    def tool_names(self) -> list[str]:
+        """The registered tool names, in registration order."""
 
     def handle_tool(self, tool_name: str, arguments: dict) -> dict:
-        """Dispatch a tool call by name. Used by the Local Review CLI to
-        invoke tools without going through the MCP protocol layer."""
-        handler = self._tools.get(tool_name)
-        if handler is None:
-            raise ValueError(f"Unknown tool: {tool_name}")
-        return handler(arguments)
+        """Dispatch a tool call directly, without the MCP protocol (LLD-06)."""
+        return dispatch(self._ctx, tool_name, arguments)
 
-    def query_by_table(self, table: str, filters: dict) -> list[dict]:
-        """Query a table that has no dedicated query tool (child tables).
-        Returns full records when adapter_mode="review"."""
-        with self._db.read_only() as conn:
-            return self._dal.query_table(conn, table, filters)
+    def run(self) -> None:
+        """Serve the tool surface over stdio.
 
-    def get_children_for_display(self, table: str, record: dict) -> list[dict]:
-        """Load child records for a parent record (display purposes)."""
-        from r210_mcp.validation.status import PARENT_CHILD_MAP
-        children = []
-        with self._db.read_only() as conn:
-            for child_rel in PARENT_CHILD_MAP.get(table, []):
-                rows = self._dal.get_children(
-                    conn, child_rel.child_table,
-                    child_rel.fk_column, record["id"]
-                )
-                children.extend([
-                    {"table": child_rel.child_table, "record": dict(r)}
-                    for r in rows
-                ])
-        return children
-
-    def get_stats(self) -> dict:
-        """Return database statistics: counts by table and status."""
-        TABLES_WITH_STATUS = {
-            "SourceRequirements", "TypeDefinitions",
-            "StructElements", "EnumValues",
-            "PortInterfaces", "InterfaceDataElements",
-            "ClientServerOperations", "OperationArguments",
-            "PortPrototypes", "PortPrototypeFunctions",
-            "PortConnections", "PortConnectionMembers",
-            "ReviewIssues",
-        }
-        TABLES_WITHOUT_STATUS = {
-            "SimpleTypeDefinitions", "ArrayTypeDefinitions",
-        }
-        with self._db.read_only() as conn:
-            stats = {}
-            for table in TABLES_WITH_STATUS | TABLES_WITHOUT_STATUS:
-                cursor = conn.execute(f"SELECT COUNT(*) FROM {table}")
-                total = cursor.fetchone()[0]
-                by_status = {}
-                if table in TABLES_WITH_STATUS:
-                    cursor = conn.execute(
-                        f"SELECT status, COUNT(*) FROM {table} GROUP BY status"
-                    )
-                    by_status = {row[0]: row[1] for row in cursor.fetchall()}
-                stats[table] = {"total": total, "by_status": by_status}
-        return stats
+        `mcp` is imported inside this method, making it a runtime dependency of
+        this method alone. Every other path — including the whole tool surface
+        through handle_tool — works without the SDK installed.
+        """
 ```
 
 **Tool count:** 35 registered tools (13 create + 13 update + 6 query + 3 cross-cutting).
@@ -1034,15 +1161,30 @@ def _demote_if_approved(conn, dal, table: str, record_id: int,
                          updated_fields: dict) -> Optional[str]:
     """If the record is currently 'approved' and non-status fields were changed,
     demote to 'pending_review' to force re-review (SRS-082b).
-    Returns the demoted unique_key, or None."""
+    Returns every demoted unique_key, the record's own first."""
+    if not updated_fields:
+        return []
     record = dal.get_record_by_id(conn, table, record_id)
-    if record["status"] == "approved" and updated_fields:
+    if record is None:
+        return []
+
+    # A structural subtype row has no status of its own (SRS-035a), so its
+    # change demotes the parent TypeDefinitions record instead.
+    if table in STRUCTURAL_SUBTYPE_TABLES:
+        parent = dal.get_record_by_id(conn, "TypeDefinitions", record.type_definition_id)
+        if parent is None or parent.status != "approved":
+            return []
+        dal.update_status(conn, "TypeDefinitions", parent.id, "pending_review", None)
+        return [parent.unique_key]
+
+    demoted = []
+    if record.status == "approved":
         dal.update_status(conn, table, record_id, "pending_review", None)
-        # Also demote parents if this is a child table (SRS-035c chain)
-        if table in CHILD_PARENT_MAP:
-            auto_demote_parent_chain(conn, dal, table, record_id)
-        return record["unique_key"]
-    return None
+        demoted.append(record.unique_key)
+    # Also demote parents if this is a child table (SRS-035c chain)
+    if table in CHILD_PARENT_MAP:
+        demoted.extend(auto_demote_parent_chain(conn, dal, table, record_id))
+    return demoted
 ```
 
 This applies to: SourceRequirements, TypeDefinitions, PortInterfaces, PortPrototypes, PortConnections, StructElements, EnumValues, InterfaceDataElements, ClientServerOperations, OperationArguments, PortConnectionMembers, PortPrototypeFunctions.
@@ -1158,9 +1300,28 @@ def project_for_gemini(table: str, record: dict) -> dict:
 
 ### 11.2 Applying Projections
 
-- **Query tools** (`query_*`): When `self._adapter_mode == "extraction"`, apply `project_for_gemini()` to each record in the response list. When `self._adapter_mode == "review"`, return full records. This binds data visibility to the adapter identity, not the transport.
-- **Create tools** (`create_*`): Return only `unique_key` and `warnings`. No record fields are included (both modes).
-- **Local Review CLI** (LLD-06): Constructs the server with `adapter_mode="review"`, so queries return full records and approval transitions are permitted.
+Projection is applied **once, in `dispatch`**, to every tool response, rather
+than inside each query handler. A handler cannot omit a step it does not
+perform, and the guarantee becomes a single adversarial test parametrized over
+all 35 tools instead of one hopeful assertion per query handler (DEV-30).
+
+`dispatch` distinguishes the two halves of SRS-015a by tool name:
+
+- **Query tools** (`query_*`) and `resolve_reference` — SRS-015a(b) permits
+  *query results* to carry the allowlisted record fields, because the skill
+  needs them for duplicate checking and reference resolution (SRS-078).
+  Each record is projected to the allowlist.
+- **Every other tool**, including all `create_*` and `update_*` —
+  SRS-015a(c) limits tool-response *metadata* to returned `unique_key` values
+  and duplicate-warning text. The response is reduced to `unique_key`,
+  `warnings` and any `demoted` keys; even allowlisted fields such as `status`
+  are withheld, because a mutation is not a query result and must reflect no
+  content back into the Gemini context.
+- **`adapter_mode == "review"`** — no projection at all. This binds data
+  visibility to the adapter identity, not the transport.
+- **Local Review CLI** (LLD-06): Constructs the server with
+  `adapter_mode="review"`, so queries return full records and approval
+  transitions are permitted.
 
 ### 11.3 Notes
 
@@ -1178,8 +1339,8 @@ def project_for_gemini(table: str, record: dict) -> dict:
 | §3.4 Status Constants | SRS-035, SRS-035b, SRS-076 |
 | §3.5 Parent–Child Registry | SRS-046, SRS-053, SRS-035c |
 | §4 Connection Mgmt | SRS-032, SRS-084 |
-| §6.1 Common Validators | SRS-034, SRS-038b, SRS-074 |
-| §6.2 Status Validators | SRS-035b, SRS-046, SRS-053, SRS-092a, SRS-035c |
+| §6.1 Common Validators | SRS-027, SRS-034, SRS-038b, SRS-074, SRS-083, SRS-109 |
+| §6.2 Status Validators | SRS-035b, SRS-036a, SRS-046, SRS-053, SRS-092a, SRS-035c |
 | §6.3 Type Def Validators | SRS-043, SRS-044, SRS-038a, SRS-120 |
 | §6.4 Port Interface Validators | SRS-052, SRS-055, SRS-059 |
 | §6.5 Port Connection Validators | SRS-069, SRS-070, SRS-071, SRS-072, SRS-122, SRS-125 |
@@ -1192,12 +1353,18 @@ def project_for_gemini(table: str, record: dict) -> dict:
 | §7.7 Review Status Tool | SRS-082a, SRS-089, SRS-091a, SRS-035b, SRS-035c, SRS-046, SRS-053, SRS-092a |
 | §7.8 Reference Resolution | SRS-087 |
 | §7.9 Generation Trigger | SRS-090 |
+| §7 Handler pattern and engine | SRS-035a, SRS-036a, SRS-083, SRS-084, SRS-091a, SRS-082b, SRS-035c |
 | §8 Duplicate Detection | SRS-034, SRS-121 |
+| §9.1 Tool Context | SRS-082a |
+| §9.2 Registry and dispatch | SRS-083, SRS-085–SRS-090, SRS-109, SRS-015a |
+| §9.3 Non-MCP surface | SRS-123 (supports LLD-06) |
+| §9.4 Server adapter | SRS-082a |
 | §10 Status Rejection | SRS-091a |
 | §10.1 Content-Change Demotion | SRS-082b, SRS-035c |
 | §10.2 Common Update Algorithm | SRS-091a, SRS-037, SRS-038c, SRS-082b |
 | §10.3 Connection Member Update | SRS-122, SRS-069, SRS-070, SRS-072 |
 | §10.4 Parent Demotion on Child Creation | SRS-035c, SRS-082b |
+| §11 Response Projection | SRS-015a |
 
 ---
 
@@ -1210,3 +1377,4 @@ def project_for_gemini(table: str, record: dict) -> dict:
 | 1.2     | 2026-08-11 | Review-driven fixes: Made `caller` required and validated against `adapter_mode` (C-04). Added `adapter_mode` to server constructor binding authority structurally (SRS-082a). Projection now conditional on adapter_mode, not transport (M-07). Fixed SourceRequirements projection from `name` to `source_reference` (C-05). Added `initial_status` parameter to all create tools (H-02). Fixed ReviewIssue `artifact_type`/`artifact_unique_key` pairing to be bidirectional (M-05). Added SRS-082a to §7.7 traceability (M-01). Updated source references to SRS v5.2, HLD v3.1. |
 | 1.3     | 2026-08-11 | Aligned with SRS v5.3 and HLD v3.3. Explicitly classified `SourceRequirements` as a reviewable input record within the `set_review_status` scope. |
 | 1.4     | 2026-08-12 | Aligned with SRS v5.4/HLD v3.4/LLD-01 v1.1. Allowed the four type-reference inputs to remain unresolved, requiring NULL storage, transactional `unresolved_reference` issue creation, and approval/export blocking until resolved. Confirmed parent-child and connection-cardinality decisions. |
+| 1.5     | 2026-08-12 | Aligned the document with the Phase 3 implementation; deviations DEV-25 through DEV-38 are incorporated and the register is closed. **§6.1:** validators take a keyword-only `operation`, without which they cannot build an SRS-109 error (DEV-34); `validate_status` generalised to `validate_choice`; added `validate_positive_int`. **§6.2:** rewritten for record dataclasses rather than dict rows (DEV-29); `get_parent_record` signature corrected; added `check_references_resolved`, the approval half of SRS-036a that no section previously owned (DEV-27); `validate_*_transition` gained a caller-chosen `field`. **§6.5:** `validate_connection_complete` raises instead of returning a list, so the caller's transaction rolls back; recorded that SRS-070 is enforced by a V001 UNIQUE constraint and the validator branch is defence in depth (DEV-37). **§7:** handlers are functions over a `ToolContext`, not bound methods (DEV-26); the 32 regular tools are descriptors executed by a shared engine, with each cross-cutting rule in one place (DEV-32); added `CreateSpec.post_create`. **§7.7:** `table_hint` is optional (DEV-35); added the SRS-036a reference check to the approval path. **§7.9:** recorded that `trigger_generation` validates its input and reports the generator unavailable (DEV-31). **§8:** duplicate candidates come from a normalized comparison over the table, not from the indexed exact match, which cannot return whitespace variants for a caller to filter (DEV-36, supersedes DEV-24). **§9:** split into registry and adapter, with `mcp` imported only inside `run()`; `dispatch` documented as the single error boundary, completing SRS-109 where §5.1 deferred it. **§11.2:** projection applied once at dispatch (DEV-30), and split by SRS-015a clause — query results carry allowlisted fields, mutations return only `unique_key`, warnings and demoted keys (DEV-38). Added §7, §9.1–9.4 and §11.2 to the traceability matrix. |

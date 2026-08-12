@@ -264,16 +264,33 @@ class TestRegistry:
         assert response["error"]["operation"] == "create_enum_value"
         assert "constraint" in response["error"]["reason"]
 
-    def test_extraction_mode_projects_the_response(self, initialized_db: str) -> None:
-        """SRS-015a — source_text never leaves in extraction mode."""
+    def test_a_create_returns_only_metadata_to_extraction(self, initialized_db: str) -> None:
+        """SRS-015a(c), LLD-02 §11.2 — a create reflects no content back.
+
+        Only the returned unique_key and any duplicate warning may cross into
+        the Gemini context; even allowlisted fields like `status` are withheld
+        because this is not a query result.
+        """
         ctx = build_context(initialized_db, "extraction")
         response = dispatch(
             ctx,
             "create_source_requirement",
             {"source_reference": "REQ-1", "source_text": "confidential"},
         )
-        assert "source_text" not in response["result"]
-        assert response["result"]["source_reference"] == "REQ-1"
+        assert set(response["result"]) == {"unique_key"}
+
+    def test_a_query_returns_allowlisted_fields_to_extraction(self, initialized_db: str) -> None:
+        """SRS-015a(b) — query results carry the allowlisted fields."""
+        ctx = build_context(initialized_db, "extraction")
+        dispatch(
+            ctx,
+            "create_source_requirement",
+            {"source_reference": "REQ-1", "source_text": "confidential"},
+        )
+        response = dispatch(ctx, "query_source_requirements", {})
+        record = response["result"]["records"][0]
+        assert record["source_reference"] == "REQ-1"
+        assert "source_text" not in record
 
     def test_review_mode_returns_full_records(self, initialized_db: str) -> None:
         ctx = build_context(initialized_db, "review")

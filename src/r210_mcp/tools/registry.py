@@ -108,6 +108,17 @@ TOOL_HANDLERS: dict[str, ToolHandler] = {
 }
 
 
+def _returns_records_to_extraction(tool_name: str) -> bool:
+    """Whether SRS-015a(b) lets this tool return record fields to extraction.
+
+    Clause (b) permits *query results* — the skill needs them for duplicate
+    checking and reference resolution. Clause (c) limits every other response
+    to returned `unique_key` values and duplicate-warning text, so a create or
+    update reflects no content back (LLD-02 §11.2).
+    """
+    return tool_name.startswith("query_") or tool_name == "resolve_reference"
+
+
 def dispatch(ctx: ToolContext, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     """Run a tool by name, returning a response rather than raising.
 
@@ -132,7 +143,9 @@ def dispatch(ctx: ToolContext, tool_name: str, arguments: dict[str, Any]) -> dic
         ).to_dict()
 
     if ctx.adapter_mode == "extraction":
-        return project_response(response)
+        return project_response(
+            response, records_permitted=_returns_records_to_extraction(tool_name)
+        )
     return response
 
 

@@ -44,8 +44,15 @@ def _project_value(value: Any) -> Any:
     return value
 
 
-def project_response(payload: dict[str, Any]) -> dict[str, Any]:
+def project_response(payload: dict[str, Any], *, records_permitted: bool) -> dict[str, Any]:
     """Project a whole tool response (LLD-02 §11.2).
+
+    `records_permitted` distinguishes the two halves of SRS-015a. Clause (b)
+    lets *query* results carry the allowlisted record fields, because the skill
+    needs them for duplicate checking and reference resolution. Clause (c)
+    limits everything else — the response to a create or update — to returned
+    `unique_key` values and duplicate-warning text, so a mutating call reflects
+    no content back into the Gemini context.
 
     An error response passes through unchanged: it carries no record fields,
     and SRS-109 requires the operation, field, reason and affected key.
@@ -60,6 +67,8 @@ def project_response(payload: dict[str, Any]) -> dict[str, Any]:
     for key, value in result.items():
         if key in _METADATA_KEYS:
             projected[key] = value
+        elif not records_permitted:
+            continue
         elif isinstance(value, dict | list):
             projected[key] = _project_value(value)
         elif key in GEMINI_ALLOWED_FIELDS:

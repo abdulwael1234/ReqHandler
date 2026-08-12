@@ -8,12 +8,12 @@
 | **Phase**            | Phase 3 — Validation layer, 35 MCP tool handlers, server adapter |
 | **Date**             | 2026-08-12                                                   |
 | **Branch**           | `feature/phase3-tool-handlers`                               |
-| **Source Documents** | R210-SRS-001 v5.4, R210-LLD-02 v1.4 §6–§11                   |
-| **Companion**        | `docs/DEVIATIONS_FROM_REQUIREMENTS.md` §4B (DEV-25–DEV-37)   |
+| **Source Documents** | R210-SRS-001 v5.4, R210-LLD-02 v1.5 §6–§11                   |
+| **Companion**        | `docs/DEVIATIONS_FROM_REQUIREMENTS.md` §4B (DEV-25–DEV-38, closed) |
 | **Design**           | `docs/superpowers/specs/2026-08-12-phase3-mcp-tool-surface-design.md` |
 | **Plan**             | `docs/superpowers/plans/2026-08-12-phase3-mcp-tool-surface.md` (5 parts) |
 | **Predecessor**      | `docs/PHASE2_IMPLEMENTED_REQUIREMENTS.md`                    |
-| **Status**           | Complete — 588 tests passing, ruff clean, mypy strict clean  |
+| **Status**           | Complete — 590 tests passing, ruff clean, mypy strict clean  |
 
 ---
 
@@ -122,7 +122,7 @@ CLI, LLD-06) are the only phases remaining.**
 
 | SRS | Requirement (abridged) | Status | Implementation | Verified by |
 |-----|------------------------|--------|----------------|-------------|
-| SRS-015a | Gemini-facing responses limited to the allowlist | Full | `project_response` applied once at the dispatch boundary (DEV-30) | `test_no_tool_leaks_a_forbidden_field_in_extraction_mode` (35 parametrized), `test_projection.py` (8) |
+| SRS-015a | Gemini-facing responses limited to the allowlist | Full | `project_response` applied once at the dispatch boundary (DEV-30), split by clause: (b) query results carry allowlisted fields, (c) mutations return only `unique_key`, warnings and demoted keys (DEV-38) | `test_no_tool_leaks_a_forbidden_field_in_extraction_mode` (35 parametrized), `test_a_create_returns_only_metadata_to_extraction`, `test_projection.py` |
 | SRS-109 | Errors report operation, field, reason, affected key | Full | `McpValidationError` carries `McpError`; the boundary also translates `sqlite3.IntegrityError` | `test_validation_error_becomes_a_response`, `test_constraint_violation_becomes_a_response` |
 | SRS-113 | No concurrency or performance optimization | Full | One connection per operation; duplicate detection favours correctness over the index (DEV-36) | Design |
 
@@ -153,19 +153,19 @@ separately, and each has its own error naming its own reason.
 ## 8. Verification Summary
 
 ```
-588 tests passing (297 before Phase 3, 291 added)
+590 tests passing (297 before Phase 3, 293 added)
 
   Phase 3 additions:
    68  test_cross_cutting.py                  — rule suites and the two adversarial tests
    37  test_tools/test_engine.py              — descriptors, create/update/query engines
-   34  test_tools/test_assembly.py            — set_review_status, registry, server adapter
+   35  test_tools/test_assembly.py            — set_review_status, registry, server adapter
    32  test_tools/test_entity_handlers.py     — interface, prototype, connection, issue tools
    33  test_validation/test_common.py         — field validators
    25  test_validation/test_status.py         — transitions, blocking, demotion, references
    16  test_validation/test_entity_validators.py — kind, interface type, connection rules
    14  test_tools/test_type_definitions.py    — the irregular create and its children
     8  test_tools/test_source_requirements.py
-    8  test_projection.py
+   10  test_projection.py
     5  test_duplicate_detection.py
     8  test_dal.py (extended)                 — the six added DAL methods
     3  test_errors.py (extended)              — McpValidationError
@@ -241,3 +241,4 @@ Areas most worth independent scrutiny, in the order I would attack them:
 | Version | Date       | Changes |
 |---------|------------|---------|
 | 1.0     | 2026-08-12 | Initial record of Phase 3 implementation. |
+| 1.1     | 2026-08-12 | Tightened SRS-015a(c): a create or update now returns only `unique_key`, warnings and demoted keys to an extraction-mode caller, matching LLD-02 §11.2 (DEV-38). Updated counts to 590. Source document is now LLD-02 v1.5, into which DEV-25 through DEV-38 are incorporated. |
