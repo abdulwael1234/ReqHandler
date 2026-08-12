@@ -45,6 +45,11 @@ class TestPragmas:
 
 
 class TestTransaction:
+    def test_is_active_before_the_first_write(self, initialized_db: str) -> None:
+        """SRS-084 — BEGIN IMMEDIATE starts the transaction at entry."""
+        with DatabaseConnection(initialized_db).transaction() as connection:
+            assert connection.in_transaction is True
+
     def test_commits_on_clean_exit(self, initialized_db: str) -> None:
         db = DatabaseConnection(initialized_db)
         with db.transaction() as conn:
@@ -76,6 +81,26 @@ class TestTransaction:
             ).fetchone()[0]
         assert count == 0
 
+    def test_integrity_failure_rolls_back_earlier_writes(self, initialized_db: str) -> None:
+        database = DatabaseConnection(initialized_db)
+        with pytest.raises(sqlite3.IntegrityError):
+            with database.transaction() as connection:
+                connection.execute(
+                    "INSERT INTO SourceRequirements (unique_key, source_reference) VALUES (?, ?)",
+                    ("rolled-back-before-constraint", "REQ-ROLLBACK"),
+                )
+                connection.execute(
+                    "INSERT INTO TypeDefinitions (unique_key, name, kind) VALUES (?, ?, ?)",
+                    ("invalid-kind", "Invalid", "not-a-kind"),
+                )
+
+        with database.read_only() as connection:
+            count = connection.execute(
+                "SELECT COUNT(*) FROM SourceRequirements WHERE unique_key = ?",
+                ("rolled-back-before-constraint",),
+            ).fetchone()[0]
+        assert count == 0
+
     def test_connection_is_closed_after_the_block(self, initialized_db: str) -> None:
         db = DatabaseConnection(initialized_db)
         with db.transaction() as conn:
@@ -96,6 +121,11 @@ class TestTransaction:
 
 
 class TestReadOnly:
+    def test_does_not_start_a_transaction(self, initialized_db: str) -> None:
+        with DatabaseConnection(initialized_db).read_only() as connection:
+            connection.execute("SELECT 1").fetchone()
+            assert connection.in_transaction is False
+
     def test_closes_the_connection(self, initialized_db: str) -> None:
         db = DatabaseConnection(initialized_db)
         with db.read_only() as conn:
