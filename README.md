@@ -20,9 +20,9 @@ requirement files and review reports.
 ```
 R210_Req/
 ├── Sytem_description/          # Informal system description
-├── Srs/                        # Software Requirements Specification (v5.1)
-├── archi/                      # High-Level Design (v3.1)
-├── lld/                        # Low-Level Design documents (v1.1)
+├── Srs/                        # Software Requirements Specification
+├── archi/                      # High-Level Design
+├── lld/                        # Low-Level Design documents
 ├── src/
 │   ├── r210_mcp/               # MCP Server (LLD-02)
 │   │   ├── server.py           #   Entry point and tool registration
@@ -80,13 +80,13 @@ pytest
 | Document | Version | Path |
 |----------|---------|------|
 | System Description | — | `Sytem_description/system_Description.md` |
-| SRS | 5.2 | `Srs/SRS_Requirements.md` |
-| HLD | 3.2 | `archi/HLD_High_Level_Design.md` |
-| LLD-01 Database Schema | 1.0 | `lld/LLD_01_Database_Schema.md` |
-| LLD-02 MCP Server | 1.2 | `lld/LLD_02_MCP_Server.md` |
-| LLD-03 Gemini CLI Skill | 1.2 | `lld/LLD_03_Gemini_CLI_Skill.md` |
-| LLD-04 Deterministic Generator | 1.2 | `lld/LLD_04_Deterministic_Generator.md` |
-| LLD-05 Database Initializer | 1.2 | `lld/LLD_05_Database_Initializer.md` |
+| SRS | 5.4 | `Srs/SRS_Requirements.md` |
+| HLD | 3.4 | `archi/HLD_High_Level_Design.md` |
+| LLD-01 Database Schema | 1.1 | `lld/LLD_01_Database_Schema.md` |
+| LLD-02 MCP Server | 1.5 | `lld/LLD_02_MCP_Server.md` |
+| LLD-03 Gemini CLI Skill | 1.3 | `lld/LLD_03_Gemini_CLI_Skill.md` |
+| LLD-04 Deterministic Generator | 1.3 | `lld/LLD_04_Deterministic_Generator.md` |
+| LLD-05 Database Initializer | 1.4 | `lld/LLD_05_Database_Initializer.md` |
 | LLD-06 Local Review CLI | 1.2 | `lld/LLD_06_Local_Review_CLI.md` |
 
 ## Status
@@ -95,8 +95,11 @@ pytest
 layer and connection management (LLD-02 §4–5), validation layer, all 35 MCP
 tools, and the MCP server adapter (LLD-02 §6–§11).
 
-**Remaining:** Deterministic Generator (LLD-04) and Local Review CLI (LLD-06).
-Both are docstring-only scaffolding today, so `r210-review` exits 1.
+**Remaining:** Gemini CLI Skill (LLD-03), Deterministic Generator (LLD-04) and
+Local Review CLI (LLD-06). All three are stubs today, so `r210-review` exits 1
+and `trigger_generation` reports the generator unavailable. See
+`docs/REMAINING_WORK.md` for the full list, including the open TBDs and the
+suggested order.
 
 **Unverified:** `R210McpServer.run()` — the `mcp` SDK is not installed in this
 environment, so the stdio transport has never been executed. Every tool is
