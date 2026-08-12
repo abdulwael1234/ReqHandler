@@ -5,10 +5,10 @@
 | Field              | Value                                                    |
 |--------------------|----------------------------------------------------------|
 | **Document ID**    | R210-LLD-01                                              |
-| **Version**        | 1.0                                                      |
-| **Date**           | 2026-08-10                                               |
+| **Version**        | 1.1                                                      |
+| **Date**           | 2026-08-12                                               |
 | **Component**      | SQLite Database                                          |
-| **Source Documents**| R210-SRS-001 v5.0, R210-HLD-001 v3.0                   |
+| **Source Documents**| R210-SRS-001 v5.4, R210-HLD-001 v3.4                   |
 | **Status**         | Draft                                                    |
 
 ---
@@ -167,7 +167,7 @@ CREATE TABLE ArrayTypeDefinitions (
     id                  INTEGER PRIMARY KEY,
     unique_key          TEXT    NOT NULL UNIQUE,
     type_definition_id  INTEGER NOT NULL UNIQUE REFERENCES TypeDefinitions(id),
-    element_type_id     INTEGER NOT NULL REFERENCES TypeDefinitions(id),  -- SRS-036a default: NOT NULL
+    element_type_id     INTEGER REFERENCES TypeDefinitions(id),  -- NULL while unresolved (SRS-036a)
     array_size          INTEGER NOT NULL CHECK (array_size >= 1)
 );
 ```
@@ -177,10 +177,11 @@ CREATE TABLE ArrayTypeDefinitions (
 | `id`                 | INTEGER | No       | PRIMARY KEY                                       |
 | `unique_key`         | TEXT    | No       | UNIQUE                                            |
 | `type_definition_id` | INTEGER | No       | UNIQUE, FK → TypeDefinitions(id)                  |
-| `element_type_id`    | INTEGER | No       | FK → TypeDefinitions(id) (SRS-036a: NOT NULL pending) |
+| `element_type_id`    | INTEGER | Yes      | FK → TypeDefinitions(id); NULL while unresolved (SRS-036a) |
 | `array_size`         | INTEGER | No       | CHECK (≥ 1)                                       |
 
-**Stakeholder note (SRS-036a):** `element_type_id` is NOT NULL per the current default. If the stakeholder decision allows NULL-while-unresolved, this column changes to nullable and migration LLD-05 adds the schema change.
+**Resolution rule (SRS-036a):** a NULL `element_type_id` requires an
+`unresolved_reference` review issue and blocks approval/export until resolved.
 
 ---
 
@@ -194,7 +195,7 @@ CREATE TABLE StructElements (
     unique_key          TEXT    NOT NULL UNIQUE,
     struct_type_id      INTEGER NOT NULL REFERENCES TypeDefinitions(id),
     name                TEXT    NOT NULL,
-    element_type_id     INTEGER NOT NULL REFERENCES TypeDefinitions(id),  -- SRS-036a default
+    element_type_id     INTEGER REFERENCES TypeDefinitions(id),  -- NULL while unresolved (SRS-036a)
     position            INTEGER NOT NULL CHECK (position >= 1),
     description         TEXT,
     status              TEXT    NOT NULL DEFAULT 'pending_review'
@@ -211,7 +212,7 @@ CREATE TABLE StructElements (
 | `unique_key`      | TEXT    | No       | UNIQUE                                                |
 | `struct_type_id`  | INTEGER | No       | FK → TypeDefinitions(id)                              |
 | `name`            | TEXT    | No       | NOT NULL; UNIQUE within struct                        |
-| `element_type_id` | INTEGER | No       | FK → TypeDefinitions(id) (SRS-036a: NOT NULL pending) |
+| `element_type_id` | INTEGER | Yes      | FK → TypeDefinitions(id); NULL while unresolved (SRS-036a) |
 | `position`        | INTEGER | No       | CHECK ≥ 1; UNIQUE within struct                       |
 | `description`     | TEXT    | Yes      | —                                                     |
 | `status`          | TEXT    | No       | CHECK (5-state)                                       |
@@ -315,7 +316,7 @@ CREATE TABLE InterfaceDataElements (
     unique_key          TEXT    NOT NULL UNIQUE,
     port_interface_id   INTEGER NOT NULL REFERENCES PortInterfaces(id),
     name                TEXT    NOT NULL,
-    type_definition_id  INTEGER NOT NULL REFERENCES TypeDefinitions(id),
+    type_definition_id  INTEGER REFERENCES TypeDefinitions(id),  -- NULL while unresolved (SRS-036a)
     position            INTEGER NOT NULL CHECK (position >= 1),
     description         TEXT,
     status              TEXT    NOT NULL DEFAULT 'pending_review'
@@ -370,7 +371,7 @@ CREATE TABLE OperationArguments (
     unique_key          TEXT    NOT NULL UNIQUE,
     operation_id        INTEGER NOT NULL REFERENCES ClientServerOperations(id),
     name                TEXT    NOT NULL,
-    type_definition_id  INTEGER NOT NULL REFERENCES TypeDefinitions(id),
+    type_definition_id  INTEGER REFERENCES TypeDefinitions(id),  -- NULL while unresolved (SRS-036a)
     direction           TEXT    NOT NULL
                         CHECK (direction IN ('input','output','input_output')),
     position            INTEGER NOT NULL CHECK (position >= 1),
@@ -552,16 +553,16 @@ This table summarizes all foreign-key relationships.
 | TypeDefinitions           | source_requirement_id   | SourceRequirements      | id            | Yes      | SRS-041                    |
 | SimpleTypeDefinitions     | type_definition_id      | TypeDefinitions         | id            | No       | 1:1 — also UNIQUE          |
 | ArrayTypeDefinitions      | type_definition_id      | TypeDefinitions         | id            | No       | 1:1 — also UNIQUE          |
-| ArrayTypeDefinitions      | element_type_id         | TypeDefinitions         | id            | No*      | *Pending SRS-036a          |
+| ArrayTypeDefinitions      | element_type_id         | TypeDefinitions         | id            | Yes      | NULL while unresolved; issue + approval/export gate (SRS-036a) |
 | StructElements            | struct_type_id          | TypeDefinitions         | id            | No       |                            |
-| StructElements            | element_type_id         | TypeDefinitions         | id            | No*      | *Pending SRS-036a          |
+| StructElements            | element_type_id         | TypeDefinitions         | id            | Yes      | NULL while unresolved; issue + approval/export gate (SRS-036a) |
 | EnumValues                | enum_type_id            | TypeDefinitions         | id            | No       |                            |
 | PortInterfaces            | source_requirement_id   | SourceRequirements      | id            | Yes      | SRS-041                    |
 | InterfaceDataElements     | port_interface_id       | PortInterfaces          | id            | No       |                            |
-| InterfaceDataElements     | type_definition_id      | TypeDefinitions         | id            | No*      | *Pending SRS-036a          |
+| InterfaceDataElements     | type_definition_id      | TypeDefinitions         | id            | Yes      | NULL while unresolved; issue + approval/export gate (SRS-036a) |
 | ClientServerOperations    | port_interface_id       | PortInterfaces          | id            | No       |                            |
 | OperationArguments        | operation_id            | ClientServerOperations  | id            | No       |                            |
-| OperationArguments        | type_definition_id      | TypeDefinitions         | id            | No*      | *Pending SRS-036a          |
+| OperationArguments        | type_definition_id      | TypeDefinitions         | id            | Yes      | NULL while unresolved; issue + approval/export gate (SRS-036a) |
 | PortPrototypes            | source_requirement_id   | SourceRequirements      | id            | Yes      | SRS-041                    |
 | PortPrototypes            | port_interface_id       | PortInterfaces          | id            | Yes      | SRS-036: NULL while unresolved |
 | PortPrototypeFunctions    | port_prototype_id       | PortPrototypes          | id            | No       |                            |
@@ -677,3 +678,4 @@ All `unique_key` values shall be generated using Python's `uuid.uuid4()` and sto
 | Version | Date       | Changes |
 |---------|------------|---------|
 | 1.0     | 2026-08-10 | Initial LLD derived from SRS v5.0 and HLD v3.0. |
+| 1.1     | 2026-08-12 | Aligned with approved SRS-036a: made the four cross-artifact type-reference columns nullable while unresolved and specified issue creation plus approval/export blocking. Existing v1 databases upgrade through LLD-05 V002. |

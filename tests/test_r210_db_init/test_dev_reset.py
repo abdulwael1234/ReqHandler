@@ -52,12 +52,12 @@ class TestDevelopmentReset:
     def test_leaves_database_at_current_schema_version(self, initialized_db: str) -> None:
         development_reset(initialized_db)
 
-        assert _scalar(initialized_db, "SELECT MAX(version) FROM schema_version") == 1
+        assert _scalar(initialized_db, "SELECT MAX(version) FROM schema_version") == 2
 
-    def test_records_exactly_one_version_row(self, initialized_db: str) -> None:
+    def test_records_one_row_per_applied_migration(self, initialized_db: str) -> None:
         development_reset(initialized_db)
 
-        assert _scalar(initialized_db, "SELECT COUNT(*) FROM schema_version") == 1
+        assert _scalar(initialized_db, "SELECT COUNT(*) FROM schema_version") == 2
 
     def test_works_on_a_database_that_does_not_exist_yet(self, db_path: str) -> None:
         development_reset(db_path)

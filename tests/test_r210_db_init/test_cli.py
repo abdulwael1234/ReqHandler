@@ -51,7 +51,7 @@ class TestInitCommand:
     def test_init_reports_final_version(self, monkeypatch, db_path: str, capsys) -> None:
         _run(monkeypatch, "init", db_path)
 
-        assert "1" in capsys.readouterr().out
+        assert "Database at version 2" in capsys.readouterr().out
 
     def test_repeated_init_still_exits_zero(self, monkeypatch, db_path: str) -> None:
         _run(monkeypatch, "init", db_path)

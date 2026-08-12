@@ -5,10 +5,10 @@
 | Field              | Value                                                    |
 |--------------------|----------------------------------------------------------|
 | **Document ID**    | R210-LLD-04                                              |
-| **Version**        | 1.2                                                      |
-| **Date**           | 2026-08-11                                               |
+| **Version**        | 1.3                                                      |
+| **Date**           | 2026-08-12                                               |
 | **Component**      | Deterministic Generator / Exporter                       |
-| **Source Documents**| R210-SRS-001 v5.2, R210-HLD-001 v3.1, R210-LLD-01 v1.0 |
+| **Source Documents**| R210-SRS-001 v5.4, R210-HLD-001 v3.4, R210-LLD-01 v1.1 |
 | **Status**         | Draft                                                    |
 
 ---
@@ -191,14 +191,16 @@ def _evaluate_exportable_trees(self, snapshot: DatabaseSnapshot) -> ExportableSe
 
 ### 5.1 Validation Rules
 
-Before generating R210 output for an artifact, validate all mandatory FK references are resolved:
+Before generating R210 output for an artifact, validate all references required
+for export are resolved. The four SRS-036a type references are nullable during
+extraction but mandatory at this boundary:
 
 | Artifact Type | Mandatory FK Fields to Validate |
 |---------------|--------------------------------|
-| ArrayTypeDefinitions | `element_type_id` NOT NULL; target exists |
-| StructElements | `element_type_id` NOT NULL; target exists |
-| InterfaceDataElements | `type_definition_id` NOT NULL; target exists |
-| OperationArguments | `type_definition_id` NOT NULL; target exists |
+| ArrayTypeDefinitions | `element_type_id` resolved (non-NULL); target exists |
+| StructElements | `element_type_id` resolved (non-NULL); target exists |
+| InterfaceDataElements | `type_definition_id` resolved (non-NULL); target exists |
+| OperationArguments | `type_definition_id` resolved (non-NULL); target exists |
 | PortPrototypes | `port_interface_id` NOT NULL; target exists |
 | PortConnectionMembers | `port_prototype_id` NOT NULL; target exists |
 
@@ -645,3 +647,4 @@ class GenerationResult:
 | 1.0     | 2026-08-10 | Initial LLD derived from SRS v5.0, HLD v3.0, and LLD-01 v1.0. |
 | 1.1     | 2026-08-10 | Post-review amendments: Moved exportable-tree evaluation before mode check so report_only mode populates Section (b) warnings. Fixed PortConnections sort key from `name` (nonexistent) to `description`. Added `BEGIN` transaction to loader for snapshot consistency. Added `sort_field` column to artifact ordering table. |
 | 1.2     | 2026-08-11 | Review-driven fixes: Assigned `exported_artifacts` in pipeline (H-05). Fixed nullable sort_field crash with `(a.sort_field or "").lower()` (H-06). Added Section (a2) FK validation errors to report builder (M-06). Updated source references to SRS v5.2, HLD v3.1. |
+| 1.3     | 2026-08-12 | Aligned with approved SRS-036a and LLD-01 v1.1: nullable type references remain mandatory at the generator boundary, so unresolved records are excluded and reported. Work-specific templates, paths, mappings, and metamodel information remain deferred to the work machine. |

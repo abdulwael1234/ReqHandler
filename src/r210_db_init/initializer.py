@@ -15,6 +15,7 @@ from dataclasses import dataclass
 
 from .migrations.base import Migration
 from .migrations.v001_initial_schema import INDEX_DDL, TABLE_DDL, V001InitialSchema
+from .migrations.v002_nullable_type_references import V002NullableTypeReferences
 
 # The version-tracking table is created by the initializer, not by a migration
 # (LLD-05 §4.3), so it is not part of TABLE_DDL.
@@ -44,8 +45,9 @@ class DatabaseInitializer:
     # version N-1 to version N.
     MIGRATIONS: list[type[Migration]] = [
         V001InitialSchema,  # version 0 → 1
+        V002NullableTypeReferences,  # version 1 → 2
         # Future migrations added here:
-        # V002AddNewColumn,      # version 1 → 2
+        # V003AddNewColumn,      # version 2 → 3
     ]
 
     def __init__(self, db_path: str):

@@ -5,8 +5,8 @@
 | Field                | Value                                                        |
 |----------------------|--------------------------------------------------------------|
 | **Document ID**      | R210-DEV-01                                                  |
-| **Date**             | 2026-08-11                                                   |
-| **Source Documents** | R210-SRS-001 v5.3, R210-LLD-01 v1.0, R210-LLD-02 v1.3, R210-LLD-05 v1.3 |
+| **Date**             | 2026-08-12                                                   |
+| **Source Documents** | R210-SRS-001 v5.4, R210-LLD-01 v1.1, R210-LLD-02 v1.4, R210-LLD-05 v1.4 |
 | **Companion**        | `docs/PHASE1_IMPLEMENTED_REQUIREMENTS.md`                    |
 | **Status**           | Living document — updated as each phase is implemented        |
 
@@ -314,22 +314,21 @@ complete schema-repair mechanism.
 
 ---
 
-### DEV-O-02 — SRS-036a remains unresolved
+### DEV-O-02 — Nullable unresolved type references *(Resolved — approved)*
 
-**Status in SRS:** listed as an open Stakeholder Decision. It asks whether
+**Original question:** whether
 `element_type_id` (in `ArrayTypeDefinitions`, `StructElements`) and
 `type_definition_id` (in `InterfaceDataElements`, `OperationArguments`) may be
 `NULL` while unresolved, as `PortPrototypes.port_interface_id` may be.
 
-**Implemented:** the documented default — `NOT NULL` on all four columns, per
-LLD-01 §3.4/§3.5 and the note in LLD-01 §4.
+**Decision:** allow NULL while unresolved. The MCP boundary must create an
+`unresolved_reference` issue and approval/export must remain blocked until the
+reference is resolved.
 
-**Cost of a later change:** SQLite cannot drop a `NOT NULL` constraint in place.
-Reversing this decision requires a V002 migration that rebuilds all four tables
-(create new, copy, drop old, rename) — safe but not trivial.
-
-**Recommendation:** resolve before Phase 4 (type-definition MCP tools), when
-extraction begins creating records whose type references may not yet exist.
+**Implementation:** V002 rebuilds all four tables transactionally and preserves
+existing rows, constraints, and indexes. Record dataclass annotations now allow
+`None`. MCP issue creation and approval/export validation remain assigned to
+their existing later phases.
 
 ---
 
@@ -386,13 +385,13 @@ process real work data until this is resolved.
 | DEV-15 | Refinement | Field order pinned to column order | Approved |
 | DEV-16 | Refinement | PEP 604 optional syntax | Approved |
 | DEV-O-01 | Resolved decision | Report-only behavior for damaged current-version schema | Approved; incorporated into SRS v5.3 |
-| DEV-O-02 | Open item | SRS-036a nullable cross-artifact FKs | **Decision required** |
+| DEV-O-02 | Resolved decision | Nullable unresolved cross-artifact type references | Approved and implemented in V002 |
 | DEV-O-03 | Open item | Broken `r210-review` entry point | Fix in Phase 8 |
 | DEV-O-04 | Open item | SRS-015 external data transfer | **Blocking, pre-existing** |
 
 All Phase 1 interpretations and deviations are explicitly recorded. Approved
-items are incorporated into the v5.3 requirements baseline; unresolved items
-remain identified as interim behavior or future-phase work.
+items are incorporated into the v5.4 requirements baseline. Remaining entries
+are either scheduled future-phase work or the external SRS-015 authorization.
 
 ---
 
@@ -402,3 +401,4 @@ remain identified as interim behavior or future-phase work.
 |---------|------------|---------|
 | 1.0     | 2026-08-11 | Initial version covering Phase 1 (database foundation). |
 | 1.1     | 2026-08-11 | Recorded approval of DEV-01 through DEV-16, resolved DEV-O-01 as report-only, incorporated source-requirement reviewability into SRS v5.3, and retained DEV-O-02 as the remaining Phase 1 stakeholder decision. |
+| 1.2     | 2026-08-12 | Resolved DEV-O-02 by approving nullable unresolved type references and implementing V002. Recorded that work-specific configuration is intentionally deferred until transfer to the work computer. |

@@ -6,11 +6,11 @@
 |----------------------|--------------------------------------------------------------|
 | **Document ID**      | R210-IMPL-01                                                 |
 | **Phase**            | Phase 1 — Database Foundation (models, migration, initializer)|
-| **Date**             | 2026-08-11                                                   |
+| **Date**             | 2026-08-12                                                   |
 | **Branch**           | `feature/phase1-database-foundation`                         |
-| **Source Documents** | R210-SRS-001 v5.3, R210-LLD-01 v1.0, R210-LLD-02 v1.3, R210-LLD-05 v1.3 |
+| **Source Documents** | R210-SRS-001 v5.4, R210-LLD-01 v1.1, R210-LLD-02 v1.4, R210-LLD-05 v1.4 |
 | **Companion**        | `docs/DEVIATIONS_FROM_REQUIREMENTS.md`                       |
-| **Status**           | Complete — 150 tests passing, ruff clean, mypy strict clean   |
+| **Status**           | Complete — 152 tests passing, ruff clean, mypy strict clean   |
 
 ---
 
@@ -25,6 +25,7 @@ mirror it.
 | Module | Purpose |
 |--------|---------|
 | `src/r210_db_init/migrations/v001_initial_schema.py` | DDL for all 15 application tables + 29 indexes (LLD-01 §3) |
+| `src/r210_db_init/migrations/v002_nullable_type_references.py` | Data-preserving upgrade making four unresolved type-reference FKs nullable (SRS-036a) |
 | `src/r210_db_init/initializer.py` | `DatabaseInitializer`, `InitResult` — creation, migration, version tracking, verification (LLD-05 §4) |
 | `src/r210_db_init/cli.py` | `init` / `reset` command-line surface (LLD-05 §3) |
 | `src/r210_db_init/dev_reset.py` | Development-only destructive reset (LLD-05 §6) |
@@ -55,7 +56,7 @@ generator, and the review CLI. Those consume this layer in later phases.
 | SRS-096 | `init_db` creates schema objects during initialization/migration and reports damage to a current-version schema without implicit repair | Full | `V001InitialSchema.up`, `_create_indexes`, `_verify_schema` | `test_creates_all_application_tables`, `test_creates_indexes_declared_in_lld01`, `TestSchemaVerification` |
 | SRS-097 | `init_db` records the database schema version | Full | `_ensure_version_table`, version INSERT | `TestSchemaVersionTracking` |
 | SRS-098 | `init_db` is idempotent | Full | `CREATE ... IF NOT EXISTS` + version check | `TestIdempotency` (3 tests) |
-| SRS-099 | `init_db` preserves all existing data | Full | No DROP/TRUNCATE in any migration path | `test_existing_rows_survive_reinitialization` |
+| SRS-099 | `init_db` preserves all existing data | Full | Transactional V002 rebuilds copy all rows and IDs; failures roll back atomically | `test_existing_rows_survive_reinitialization`, `test_v002_preserves_existing_type_reference_rows` |
 | SRS-100 | Destructive reset is development-only, outside the Gemini workflow | Full | `dev_reset.py`, `--confirm` gate | `TestResetCommand`, `TestDevelopmentReset` |
 | SRS-124 | Each migration + version update is one transaction, rolling back on failure | Full | `BEGIN IMMEDIATE` / `COMMIT` / `ROLLBACK` in `init_db` | `TestMigrationRollback` (3 tests) |
 | SRS-109 | Errors report the operation, reason, and affected identity | Full | `InitResult.error`, CLI stderr output | `test_init_writes_failure_reason_to_stderr` |
@@ -76,7 +77,7 @@ generator, and the review CLI. Those consume this layer in later phases.
 | SRS-035a | New records default to `pending_review`; subtypes carry no `status` | Full | Column `DEFAULT 'pending_review'`; no `status` on subtype tables | `test_new_records_default_to_pending_review`, `test_structural_subtype_tables_carry_no_status_column` |
 | SRS-035b | Permitted status transitions (five-state reviewable records and issues) | Schema | `ARTIFACT_TRANSITIONS`, `ISSUE_TRANSITIONS` in `models.py` | `TestStatusTransitions` (7 tests) — *enforcement is Phase 3* |
 | SRS-036 | `PortPrototypes.port_interface_id` is `NULL` while unresolved | Full | Nullable FK column | `test_port_prototype_interface_may_be_null_while_unresolved` |
-| SRS-036a | Other cross-artifact FKs reject `NULL` under the documented interim default | **Interim** | `NOT NULL` on `element_type_id` / `type_definition_id` | `test_struct_element_type_reference_is_mandatory` — *stakeholder policy remains open; see DEV-O-02* |
+| SRS-036a | Four cross-artifact type-reference FKs allow `NULL` while unresolved | Schema | V002 table rebuilds; nullable model fields | `TestNullability`, `test_v002_preserves_existing_type_reference_rows` — *issue creation and approval/export gates belong to later phases* |
 | SRS-037 | `position` NOT NULL and unique within parent | Full | `NOT NULL` + `UNIQUE (parent_fk, position)` on all 6 ordered tables | `TestPositionConstraints` (4 tests) |
 | SRS-038 | Child records inherit traceability through their parent | Full | No `source_requirement_id` on any child table | Schema structure |
 | SRS-038a | Exactly one subtype detail row per `TypeDefinitions` parent | Schema | `UNIQUE` on `type_definition_id` | `TestSubtypeCardinality` — *"required in same operation" is Phase 4* |
@@ -152,9 +153,9 @@ suite. The two layers cannot silently diverge.
 ## 8. Verification Summary
 
 ```
-150 tests passing
-  18  test_initializer.py        — creation, versioning, idempotency, rollback, verification
-  45  test_schema_constraints.py — CHECK / UNIQUE / NOT NULL / FK behaviour
+152 tests passing
+  19  test_initializer.py        — creation, versioning, idempotency, rollback, verification, V002 preservation
+  46  test_schema_constraints.py — CHECK / UNIQUE / NULL / FK behaviour
   12  test_cli.py                — init and reset command surface
    6  test_dev_reset.py          — destructive reset behaviour
   69  test_models.py             — model layer cross-checked against the live schema
@@ -173,10 +174,10 @@ for the right reasons rather than passing vacuously.
 
 | Command | Result |
 |---------|--------|
-| `init` on a fresh path | exit 0 — version 1, 1 migration applied, 16 tables, 29 indexes, WAL |
-| `init` again | exit 0 — version 1, 0 migrations, `up_to_date` |
+| `init` on a fresh path | exit 0 — version 2, 2 migrations applied, 16 tables, 29 indexes, WAL |
+| `init` again | exit 0 — version 2, 0 migrations, `up_to_date` |
 | `reset` without `--confirm` | exit 1 — data preserved |
-| `reset --confirm` | exit 0 — data cleared, schema recreated at version 1 |
+| `reset --confirm` | exit 0 — data cleared, schema recreated at version 2 |
 
 ### Running the tests
 
@@ -215,3 +216,4 @@ generator, and are correctly absent from Phase 1:
 | Version | Date       | Changes |
 |---------|------------|---------|
 | 1.0     | 2026-08-11 | Initial record of Phase 1 implementation. |
+| 1.1     | 2026-08-12 | Added approved SRS-036a behavior through data-preserving V002, updated models/tests, and advanced the current schema to version 2. |

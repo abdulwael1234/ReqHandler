@@ -92,7 +92,7 @@ class ArrayTypeDefinitionRecord:
     id: int
     unique_key: str
     type_definition_id: int
-    element_type_id: int
+    element_type_id: int | None
     array_size: int
 
 
@@ -102,7 +102,7 @@ class StructElementRecord:
     unique_key: str
     struct_type_id: int
     name: str
-    element_type_id: int
+    element_type_id: int | None
     position: int
     description: str | None
     status: str
@@ -138,7 +138,7 @@ class InterfaceDataElementRecord:
     unique_key: str
     port_interface_id: int
     name: str
-    type_definition_id: int
+    type_definition_id: int | None
     position: int
     description: str | None
     status: str
@@ -161,7 +161,7 @@ class OperationArgumentRecord:
     unique_key: str
     operation_id: int
     name: str
-    type_definition_id: int
+    type_definition_id: int | None
     direction: str  # 'input' | 'output' | 'input_output'
     position: int
     status: str

@@ -10,6 +10,8 @@ import pytest
 
 from r210_db_init.initializer import DatabaseInitializer, InitResult
 from r210_db_init.migrations.base import Migration
+from r210_db_init.migrations.v001_initial_schema import V001InitialSchema
+from r210_db_init.migrations.v002_nullable_type_references import V002NullableTypeReferences
 from tests.conftest import EXPECTED_TABLES
 
 
@@ -89,22 +91,22 @@ class TestDatabaseCreation:
         result = DatabaseInitializer(db_path).init_db()
 
         assert result.status == "success"
-        assert result.migrations_applied == 1
-        assert result.final_version == 1
+        assert result.migrations_applied == 2
+        assert result.final_version == 2
         assert result.error is None
 
 
 class TestSchemaVersionTracking:
     """SRS-097: init_db records the database schema version."""
 
-    def test_records_version_one_after_initial_migration(self, initialized_db: str) -> None:
+    def test_records_current_version_after_migrations(self, initialized_db: str) -> None:
         conn = sqlite3.connect(initialized_db)
         try:
             version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
         finally:
             conn.close()
 
-        assert version == 1
+        assert version == 2
 
     def test_records_migration_description_and_timestamp(self, initialized_db: str) -> None:
         conn = sqlite3.connect(initialized_db)
@@ -130,7 +132,7 @@ class TestIdempotency:
 
         assert result.status == "up_to_date"
         assert result.migrations_applied == 0
-        assert result.final_version == 1
+        assert result.final_version == 2
 
     def test_second_run_does_not_duplicate_version_rows(self, db_path: str) -> None:
         DatabaseInitializer(db_path).init_db()
@@ -181,6 +183,105 @@ class TestDataPreservation:
             conn.close()
 
         assert row == ("DOC-001", "the original text")
+
+    def test_v002_preserves_existing_type_reference_rows(
+        self, db_path: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(DatabaseInitializer, "MIGRATIONS", [V001InitialSchema])
+        assert DatabaseInitializer(db_path).init_db().final_version == 1
+
+        conn = sqlite3.connect(db_path)
+        try:
+            element_type_id = conn.execute(
+                "INSERT INTO TypeDefinitions (unique_key, name, kind) "
+                "VALUES ('element-type', 'ElementType', 'simple_typedef')"
+            ).lastrowid
+            struct_type_id = conn.execute(
+                "INSERT INTO TypeDefinitions (unique_key, name, kind) "
+                "VALUES ('struct-type', 'StructType', 'struct')"
+            ).lastrowid
+            array_type_id = conn.execute(
+                "INSERT INTO TypeDefinitions (unique_key, name, kind) "
+                "VALUES ('array-type', 'ArrayType', 'array')"
+            ).lastrowid
+            sender_receiver_id = conn.execute(
+                "INSERT INTO PortInterfaces (unique_key, name, interface_type) "
+                "VALUES ('sr-interface', 'SRInterface', 'sender_receiver')"
+            ).lastrowid
+            client_server_id = conn.execute(
+                "INSERT INTO PortInterfaces (unique_key, name, interface_type) "
+                "VALUES ('cs-interface', 'CSInterface', 'client_server')"
+            ).lastrowid
+            operation_id = conn.execute(
+                "INSERT INTO ClientServerOperations "
+                "(unique_key, port_interface_id, name, position) "
+                "VALUES ('operation', ?, 'Operation', 1)",
+                (client_server_id,),
+            ).lastrowid
+            conn.execute(
+                "INSERT INTO ArrayTypeDefinitions "
+                "(unique_key, type_definition_id, element_type_id, array_size) "
+                "VALUES ('array-detail', ?, ?, 4)",
+                (array_type_id, element_type_id),
+            )
+            conn.execute(
+                "INSERT INTO StructElements "
+                "(unique_key, struct_type_id, name, element_type_id, position) "
+                "VALUES ('field', ?, 'field', ?, 1)",
+                (struct_type_id, element_type_id),
+            )
+            conn.execute(
+                "INSERT INTO InterfaceDataElements "
+                "(unique_key, port_interface_id, name, type_definition_id, position) "
+                "VALUES ('data-element', ?, 'Value', ?, 1)",
+                (sender_receiver_id, element_type_id),
+            )
+            conn.execute(
+                "INSERT INTO OperationArguments "
+                "(unique_key, operation_id, name, type_definition_id, direction, position) "
+                "VALUES ('argument', ?, 'Value', ?, 'input', 1)",
+                (operation_id, element_type_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        monkeypatch.setattr(
+            DatabaseInitializer,
+            "MIGRATIONS",
+            [V001InitialSchema, V002NullableTypeReferences],
+        )
+        result = DatabaseInitializer(db_path).init_db()
+
+        assert result.status == "success"
+        assert result.final_version == 2
+        conn = sqlite3.connect(db_path)
+        try:
+            rows = {
+                "array": conn.execute(
+                    "SELECT element_type_id FROM ArrayTypeDefinitions "
+                    "WHERE unique_key = 'array-detail'"
+                ).fetchone()[0],
+                "struct": conn.execute(
+                    "SELECT element_type_id FROM StructElements WHERE unique_key = 'field'"
+                ).fetchone()[0],
+                "data_element": conn.execute(
+                    "SELECT type_definition_id FROM InterfaceDataElements "
+                    "WHERE unique_key = 'data-element'"
+                ).fetchone()[0],
+                "argument": conn.execute(
+                    "SELECT type_definition_id FROM OperationArguments "
+                    "WHERE unique_key = 'argument'"
+                ).fetchone()[0],
+            }
+        finally:
+            conn.close()
+        assert rows == {
+            "array": element_type_id,
+            "struct": element_type_id,
+            "data_element": element_type_id,
+            "argument": element_type_id,
+        }
 
 
 class TestForeignKeyEnforcement:

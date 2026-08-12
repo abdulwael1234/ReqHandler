@@ -5,10 +5,10 @@
 | Field              | Value                                                    |
 |--------------------|----------------------------------------------------------|
 | **Document ID**    | R210-LLD-02                                              |
-| **Version**        | 1.3                                                      |
-| **Date**           | 2026-08-11                                               |
+| **Version**        | 1.4                                                      |
+| **Date**           | 2026-08-12                                               |
 | **Component**      | Python MCP Server                                        |
-| **Source Documents**| R210-SRS-001 v5.3, R210-HLD-001 v3.3, R210-LLD-01 v1.0 |
+| **Source Documents**| R210-SRS-001 v5.4, R210-HLD-001 v3.4, R210-LLD-01 v1.1 |
 | **Status**         | Draft                                                    |
 
 ---
@@ -551,8 +551,8 @@ def handle_<tool_name>(arguments: dict) -> dict:
 **Subtype object structure by kind:**
 
 - `simple_typedef`: `{ "base_type": str, "size": str? }`
-- `array`: `{ "element_type_key": str, "array_size": int }` — `array_size ≥ 1`
-- `struct`: `{ "elements": [{ "name": str, "element_type_key": str, "position": int, "description": str? }] }`
+- `array`: `{ "element_type_key": str?, "array_size": int }` — `array_size ≥ 1`; key may be NULL while unresolved
+- `struct`: `{ "elements": [{ "name": str, "element_type_key": str?, "position": int, "description": str? }] }`; key may be NULL while unresolved
 - `enum`: `{ "values": [{ "name": str, "value": str?, "position": int, "description": str? }] }`
 
 **Algorithm:**
@@ -560,27 +560,38 @@ def handle_<tool_name>(arguments: dict) -> dict:
 2. Validate subtype-specific fields (position ≥ 1, array_size ≥ 1, etc.).
 3. Validate name uniqueness within struct elements / enum values (SRS-038c).
 4. Resolve `source_requirement_key` → id if provided.
-5. Resolve `element_type_key` references → ids. Reject NULL (SRS-036a default).
+5. Resolve provided `element_type_key` references → ids. Store NULL for unresolved references (SRS-036a).
 6. Run duplicate-detection on `(name, kind)` (SRS-034).
 7. Within transaction:
    a. Insert `TypeDefinitions` row.
    b. Insert subtype detail row(s).
    c. For struct/enum with elements: insert all child rows.
-8. Return `McpResult` with warnings if duplicate detected.
-9. If duplicate detected and configured, also create `ReviewIssue` (SRS-121).
+8. For every unresolved type reference, create an `unresolved_reference`
+   ReviewIssue in the same transaction (SRS-036a). For an unresolved array
+   detail, target the parent `TypeDefinitions.unique_key` with
+   `artifact_type = "type_definition"`, because structural subtype tables are
+   not independently reviewable artifact types (SRS-074).
+9. Return `McpResult` with warnings if duplicate detected.
+10. If duplicate detected and configured, also create `ReviewIssue` (SRS-121).
 
 #### `update_type_definition`
 
 1. Reject `kind` if present (SRS-120: immutable).
 2. Reject `status` if present (SRS-091a).
-3. Update permitted fields only.
+3. For an array parent, accept `subtype.element_type_key` as an updatable field.
+   Resolve a supplied key to `ArrayTypeDefinitions.element_type_id`; a NULL
+   value keeps the reference unresolved.
+4. When an array reference becomes resolved, update or resolve the associated
+   `unresolved_reference` issue in the same transaction. When it becomes NULL,
+   create/reopen the issue and demote an approved parent per SRS-082b.
+5. Update other permitted fields only.
 
 #### `create_struct_element` / `create_enum_value`
 
 1. Validate parent kind matches (SRS-044).
 2. Validate position ≥ 1, unique within parent (SRS-037).
 3. Validate name unique within parent (SRS-038c).
-4. Resolve `element_type_key` → id. Reject NULL (SRS-036a default).
+4. Resolve `element_type_key` when provided; otherwise store NULL and create an `unresolved_reference` ReviewIssue in the same transaction (SRS-036a).
 5. Set `status` = `"pending_review"` (SRS-035a).
 6. Insert row.
 7. Return result.
@@ -616,8 +627,8 @@ def handle_<tool_name>(arguments: dict) -> dict:
 
 1. Validate parent `interface_type` = `sender_receiver` (SRS-055).
 2. Validate position ≥ 1, unique within parent.
-3. Resolve `type_definition_key` → id.
-4. Insert row.
+3. Resolve `type_definition_key` when provided; otherwise store NULL.
+4. Insert the row and, when unresolved, an `unresolved_reference` ReviewIssue in the same transaction (SRS-036a).
 
 #### `create_client_server_operation`
 
@@ -629,8 +640,15 @@ def handle_<tool_name>(arguments: dict) -> dict:
 
 1. Validate `direction` ∈ {`input`, `output`, `input_output`} (SRS-059).
 2. Validate position ≥ 1, unique within operation.
-3. Resolve `type_definition_key` → id.
-4. Insert row.
+3. Resolve `type_definition_key` when provided; otherwise store NULL.
+4. Insert the row and, when unresolved, an `unresolved_reference` ReviewIssue in the same transaction (SRS-036a).
+
+**Approval/export gate (SRS-036a):** `set_review_status` shall reject an
+`approved` transition for any reviewable child whose type-reference FK is NULL.
+When the target is a `TypeDefinitions` parent of kind `array`, the approval
+check shall inspect its structural `ArrayTypeDefinitions.element_type_id` and
+reject approval while that value is NULL. The generator shall exclude all such
+records and report the unresolved reference.
 
 ---
 
@@ -1191,3 +1209,4 @@ def project_for_gemini(table: str, record: dict) -> dict:
 | 1.1     | 2026-08-10 | Post-review amendments: Fixed tool count from 33 to 35 (§9). Rewrote §7.7 `set_review_status`: scoped to artifacts/reviewable children only; added `caller` parameter for SRS-082a enforcement; ReviewIssues and structural subtypes rejected with explicit error; `review_note` silently ignored when column absent. Added §10.1 content-change demotion (SRS-082b). Added §11 response projection for Gemini-facing queries with `GEMINI_PROJECTION` dict and `project_for_gemini()` (SRS-015a). Added `description` parameter to `create_port_prototype` (SRS-060). Added §10.2 common update algorithm with full validation. Added §10.3 transactional revalidation for `update_port_connection_member` (SRS-122). Added §10.4 parent demotion on child creation (SRS-035c). Renumbered traceability matrix to §12. |
 | 1.2     | 2026-08-11 | Review-driven fixes: Made `caller` required and validated against `adapter_mode` (C-04). Added `adapter_mode` to server constructor binding authority structurally (SRS-082a). Projection now conditional on adapter_mode, not transport (M-07). Fixed SourceRequirements projection from `name` to `source_reference` (C-05). Added `initial_status` parameter to all create tools (H-02). Fixed ReviewIssue `artifact_type`/`artifact_unique_key` pairing to be bidirectional (M-05). Added SRS-082a to §7.7 traceability (M-01). Updated source references to SRS v5.2, HLD v3.1. |
 | 1.3     | 2026-08-11 | Aligned with SRS v5.3 and HLD v3.3. Explicitly classified `SourceRequirements` as a reviewable input record within the `set_review_status` scope. |
+| 1.4     | 2026-08-12 | Aligned with SRS v5.4/HLD v3.4/LLD-01 v1.1. Allowed the four type-reference inputs to remain unresolved, requiring NULL storage, transactional `unresolved_reference` issue creation, and approval/export blocking until resolved. Confirmed parent-child and connection-cardinality decisions. |

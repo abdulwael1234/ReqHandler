@@ -5,10 +5,10 @@
 | Field              | Value                                                    |
 |--------------------|----------------------------------------------------------|
 | **Document ID**    | R210-LLD-03                                              |
-| **Version**        | 1.2                                                      |
-| **Date**           | 2026-08-11                                               |
+| **Version**        | 1.3                                                      |
+| **Date**           | 2026-08-12                                               |
 | **Component**      | Gemini CLI Skill                                         |
-| **Source Documents**| R210-SRS-001 v5.2, R210-HLD-001 v3.1                   |
+| **Source Documents**| R210-SRS-001 v5.4, R210-HLD-001 v3.4                   |
 | **Status**         | Draft                                                    |
 
 ---
@@ -276,12 +276,12 @@ Procedure:
   2. Resolve element type reference:
      a. Query: query_type_definitions(name=<element_type_name>)
      b. If found → use unique_key
-     c. If not found → create ReviewIssue(issue_type="unresolved_reference")
-        and STOP (cannot create array without element type — SRS-036a default)
+     c. If not found → pass `element_type_key = null`; the MCP create operation
+        stores NULL and creates an `unresolved_reference` ReviewIssue (SRS-036a)
   3. Validate array_size is a positive integer
   4. Call create_type_definition:
      - kind: "array"
-     - subtype: { "element_type_key": <resolved>, "array_size": <extracted> }
+     - subtype: { "element_type_key": <resolved or null>, "array_size": <extracted> }
 ```
 
 ### 6.4 Structure Data Type
@@ -292,7 +292,8 @@ Inputs needed: name, elements (each: name, type reference, position, description
 Procedure:
   1. Query existing: query_type_definitions(name=<name>, kind="struct")
   2. For each element, resolve the element type reference (query-first)
-     - If any type unresolved → record ReviewIssue, STOP (SRS-036a default)
+     - If a type is unresolved → pass `element_type_key = null`; the MCP create
+       operation stores NULL and creates the ReviewIssue (SRS-036a)
   3. Assign positions starting from 1 in the order the elements appear in the input
   4. Call create_type_definition:
      - kind: "struct"
@@ -566,3 +567,4 @@ The following fields are the **only** data permitted to enter Gemini context (SR
 | 1.0     | 2026-08-10 | Initial LLD derived from SRS v5.0 and HLD v3.0. |
 | 1.1     | 2026-08-10 | Post-review amendments: Added §4.0 synthetic-mode gate. Added §4.5 no-approval-authority rule (caller="extraction", SRS-082a). Renumbered §4.5→§4.6, §4.6→§4.7. Expanded §11.1 data boundary with justification column and `direction`/`warnings` fields. Expanded §11.2 exclusion list with all specific fields. Removed retry logic from §9.1 (SRS-114). Fixed duplicate handling in §6.2: always create record, let MCP server handle duplicates (SRS-034). |
 | 1.2     | 2026-08-11 | Review-driven fixes: Moved §4.0 synthetic-mode gate to local preflight (C-03 — gate was post-transfer). Fixed duplicate §4.6 numbering (M-02). Fixed cross-reference from LLD-02 §7.10 to §11 (M-02). Removed duplicate warnings row in §11.1 (M-02). Added `source_reference` and `issue_type` to §4.7 and §11.1 field lists (C-05). Fixed traceability matrix: §4.0 added, §4.5 relabeled to "No Approval Authority" (M-02). Updated source references to SRS v5.2, HLD v3.1. |
+| 1.3     | 2026-08-12 | Aligned extraction with approved SRS-036a: unresolved array/structure type references no longer stop record creation; NULL is passed to MCP, which creates the required review issue and blocks later approval/export. Work-specific configuration remains deferred to the work machine. |

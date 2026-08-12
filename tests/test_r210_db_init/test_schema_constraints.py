@@ -459,17 +459,68 @@ class TestNullability:
         ).fetchone()[0]
         assert stored is None
 
-    def test_struct_element_type_reference_is_mandatory(self, conn: sqlite3.Connection) -> None:
-        """SRS-036a default: cross-artifact element type references are NOT NULL."""
+    def test_struct_element_type_reference_may_be_null_while_unresolved(
+        self, conn: sqlite3.Connection
+    ) -> None:
+        """SRS-036a: unresolved cross-artifact type references may be NULL."""
         struct_id = _new_type(conn, "s1", "struct")
 
-        with pytest.raises(sqlite3.IntegrityError):
-            conn.execute(
-                "INSERT INTO StructElements "
-                "(unique_key, struct_type_id, name, element_type_id, position) "
-                "VALUES ('se', ?, 'field', NULL, 1)",
-                (struct_id,),
-            )
+        conn.execute(
+            "INSERT INTO StructElements "
+            "(unique_key, struct_type_id, name, element_type_id, position) "
+            "VALUES ('se', ?, 'field', NULL, 1)",
+            (struct_id,),
+        )
+
+        stored = conn.execute(
+            "SELECT element_type_id FROM StructElements WHERE unique_key = 'se'"
+        ).fetchone()[0]
+        assert stored is None
+
+    def test_other_cross_artifact_type_references_may_be_null(
+        self, conn: sqlite3.Connection
+    ) -> None:
+        array_type_id = _new_type(conn, "array", "array")
+        sender_receiver_id = _new_interface(conn, "sr", "sender_receiver")
+        client_server_id = _new_interface(conn, "cs", "client_server")
+        operation_id = conn.execute(
+            "INSERT INTO ClientServerOperations "
+            "(unique_key, port_interface_id, name, position) "
+            "VALUES ('op', ?, 'Operation', 1)",
+            (client_server_id,),
+        ).lastrowid
+
+        conn.execute(
+            "INSERT INTO ArrayTypeDefinitions "
+            "(unique_key, type_definition_id, element_type_id, array_size) "
+            "VALUES ('array-detail', ?, NULL, 4)",
+            (array_type_id,),
+        )
+        conn.execute(
+            "INSERT INTO InterfaceDataElements "
+            "(unique_key, port_interface_id, name, type_definition_id, position) "
+            "VALUES ('data-element', ?, 'Value', NULL, 1)",
+            (sender_receiver_id,),
+        )
+        conn.execute(
+            "INSERT INTO OperationArguments "
+            "(unique_key, operation_id, name, type_definition_id, direction, position) "
+            "VALUES ('argument', ?, 'Value', NULL, 'input', 1)",
+            (operation_id,),
+        )
+
+        assert conn.execute(
+            "SELECT element_type_id FROM ArrayTypeDefinitions "
+            "WHERE unique_key = 'array-detail'"
+        ).fetchone()[0] is None
+        assert conn.execute(
+            "SELECT type_definition_id FROM InterfaceDataElements "
+            "WHERE unique_key = 'data-element'"
+        ).fetchone()[0] is None
+        assert conn.execute(
+            "SELECT type_definition_id FROM OperationArguments "
+            "WHERE unique_key = 'argument'"
+        ).fetchone()[0] is None
 
 
 class TestReferentialIntegrity:

@@ -5,10 +5,10 @@
 | Field              | Value                                                    |
 |--------------------|----------------------------------------------------------|
 | **Document ID**    | R210-LLD-05                                              |
-| **Version**        | 1.3                                                      |
-| **Date**           | 2026-08-11                                               |
+| **Version**        | 1.4                                                      |
+| **Date**           | 2026-08-12                                               |
 | **Component**      | Database Initializer                                     |
-| **Source Documents**| R210-SRS-001 v5.3, R210-HLD-001 v3.3, R210-LLD-01 v1.0 |
+| **Source Documents**| R210-SRS-001 v5.4, R210-HLD-001 v3.4, R210-LLD-01 v1.1 |
 | **Status**         | Draft                                                    |
 
 ---
@@ -114,8 +114,9 @@ class DatabaseInitializer:
     # version N-1 to version N.
     MIGRATIONS: list[type[Migration]] = [
         V001InitialSchema,       # version 0 → 1
+        V002NullableTypeReferences,  # version 1 → 2
         # Future migrations added here:
-        # V002AddNewColumn,      # version 1 → 2
+        # V003AddNewColumn,      # version 2 → 3
     ]
 
     def __init__(self, db_path: str):
@@ -311,7 +312,8 @@ class Migration(ABC):
     - Implements up() to apply schema changes
     - Uses CREATE TABLE IF NOT EXISTS and CREATE INDEX IF NOT EXISTS
       to be safe for re-runs (SRS-098)
-    - Never drops or truncates existing tables (SRS-099)
+- Never loses existing content; constraint-changing rebuilds copy all rows and
+  run transactionally before replacing an old table (SRS-099, SRS-124)
     """
 
     @property
@@ -326,10 +328,14 @@ class Migration(ABC):
         This method runs inside a transaction managed by the initializer.
         Do NOT call conn.commit() or conn.rollback() — the caller handles this.
 
-        Use:
+        Prefer:
         - CREATE TABLE IF NOT EXISTS (idempotent)
         - CREATE INDEX IF NOT EXISTS (idempotent)
         - ALTER TABLE ... ADD COLUMN (check column existence first)
+
+        SQLite table rebuilds are permitted when required to change an existing
+        constraint, provided all rows and constraints are preserved and the
+        rebuild remains inside this transaction.
         """
 ```
 
@@ -676,6 +682,26 @@ class V001InitialSchema(Migration):
 
 ---
 
+### 5.3 V002 — Nullable Type References
+
+SRS-036a was approved after V001 had established four type-reference columns
+as NOT NULL. SQLite cannot remove a NOT NULL constraint in place, so V002
+rebuilds `ArrayTypeDefinitions`, `StructElements`, `InterfaceDataElements`, and
+`OperationArguments` inside the initializer-managed transaction.
+
+For each table, V002:
+
+1. Creates a temporary table with the LLD-01 v1.1 schema.
+2. Copies all existing rows and primary keys.
+3. Drops the old table and renames the temporary table.
+4. Recreates indexes lost with the old table.
+
+All constraints other than the selected column's nullability remain unchanged.
+The migration and version-2 record commit atomically; failure rolls everything
+back to version 1 (SRS-099, SRS-124).
+
+---
+
 ## 6. Development Reset (`dev_reset.py`)
 
 **SRS trace:** SRS-100 — development-only, outside Gemini workflow.
@@ -726,8 +752,8 @@ def development_reset(db_path: str) -> None:
 When schema changes are needed after the initial release:
 
 ```python
-# migrations/v002_add_new_column.py
-class V002AddNewColumn(Migration):
+# migrations/v003_add_new_column.py
+class V003AddNewColumn(Migration):
     """Add a new column to TypeDefinitions."""
 
     @property
@@ -750,7 +776,8 @@ Then add to the initializer's migration list:
 ```python
 MIGRATIONS = [
     V001InitialSchema,
-    V002AddNewColumn,     # version 1 → 2
+    V002NullableTypeReferences,
+    V003AddNewColumn,     # version 2 → 3
 ]
 ```
 
@@ -790,6 +817,7 @@ MIGRATIONS = [
 | §4 Initializer | SRS-094, SRS-095, SRS-096, SRS-097, SRS-098, SRS-099, SRS-124 |
 | §5.1 Base Migration | SRS-098, SRS-099 |
 | §5.2 Initial Migration | SRS-096 (creates all tables from LLD-01) |
+| §5.3 Nullable Type References | SRS-036a, SRS-099, SRS-124 |
 | §6 Development Reset | SRS-100, SRS-093 |
 | §8 Idempotency | SRS-098 |
 | §9 Error Scenarios | SRS-095, SRS-096, SRS-098, SRS-124 |
@@ -804,3 +832,4 @@ MIGRATIONS = [
 | 1.1     | 2026-08-10 | Post-review amendments: Fixed CLI exit code to check `result.status` instead of always exiting 0. Removed early return that skipped `_verify_schema` when version is current. Enhanced `_verify_schema` to check indexes and FK integrity, not just table names. |
 | 1.2     | 2026-08-11 | Review-driven fixes: Fixed verification index names to match DDL — `idx_source_requirements_status`, `idx_type_definitions_kind`, `idx_type_definitions_status` (H-01). Added newer-schema-version rejection (M-04). Updated source references to SRS v5.2, HLD v3.1. |
 | 1.3     | 2026-08-11 | Aligned with SRS v5.3 and the approved Phase 1 initializer behavior. Clarified that damage detected in a current-version schema is returned as a structured failure and is not repaired implicitly; any repair operation must be explicitly administrative. |
+| 1.4     | 2026-08-12 | Added V002 to rebuild four tables with nullable unresolved type-reference FKs while preserving data, constraints, and indexes. Updated the current schema version to 2 and aligned sources with SRS v5.4, HLD v3.4, and LLD-01 v1.1. |

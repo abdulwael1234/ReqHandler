@@ -5,9 +5,9 @@
 | Field              | Value                                                    |
 |--------------------|----------------------------------------------------------|
 | **Document ID**    | R210-HLD-001                                             |
-| **Version**        | 3.3                                                      |
-| **Date**           | 2026-08-11                                               |
-| **Source Document** | `Srs/SRS_Requirements.md` (R210-SRS-001 v5.3)          |
+| **Version**        | 3.4                                                      |
+| **Date**           | 2026-08-12                                               |
+| **Source Document** | `Srs/SRS_Requirements.md` (R210-SRS-001 v5.4)          |
 | **Status**         | Draft — revised after second architecture review         |
 
 ---
@@ -45,7 +45,7 @@ The system automates the extraction of deterministic AUTOSAR artifacts from inpu
 
 ### 1.4 References
 
-- `Srs/SRS_Requirements.md` — Software Requirements Specification v5.3
+- `Srs/SRS_Requirements.md` — Software Requirements Specification v5.4
 - `Sytem_description/system_Description.md` — System Description
 
 ---
@@ -175,7 +175,7 @@ For each input requirement:
      d. For PortPrototypes only: if port_interface_id is unresolved,
         store NULL (SRS-036) + create ReviewIssue (type: unresolved_reference)
      e. For other cross-artifact FKs (element_type_id): do NOT store NULL
-        — reject the create or create a ReviewIssue (SRS-036a, pending stakeholder decision)
+        — store NULL, create an unresolved_reference ReviewIssue, and block approval/export (SRS-036a)
   3. If ambiguous/incomplete:
      a. Create SourceRequirement record via MCP
      b. Create ReviewIssue (type: ambiguous/incomplete) via MCP
@@ -242,7 +242,7 @@ For each input requirement:
 | Subtype cardinality | Each TypeDefinition must have exactly one subtype detail row | SRS-038a |
 | Child name uniqueness | StructElements unique name within struct; EnumValues unique name within enum | SRS-038c |
 | NULL-while-unresolved FK (established) | `PortPrototypes.port_interface_id` may be NULL | SRS-036 |
-| NULL-while-unresolved FK (pending) | Other cross-artifact FKs (`element_type_id`) rejected if NULL until stakeholder decision | SRS-036a |
+| NULL-while-unresolved type FK | The four cross-artifact type references may be NULL; create an `unresolved_reference` issue and block approval/export until resolved | SRS-036a |
 | Duplicate-name warning | Case-insensitive, whitespace-normalized comparison on create; warning returned in response; optionally persisted as ReviewIssue | SRS-034, SRS-121 |
 | artifact_type/artifact_unique_key pairing | If `artifact_unique_key` is set, `artifact_type` must also be set | SRS-074 |
 | Status only via set_review_status | Update tools shall reject `status` as an updatable field; status changes go through `set_review_status` only | SRS-091a |
@@ -255,7 +255,7 @@ For each input requirement:
 | Member existence | Every `port_prototype_id` in members must exist in PortPrototypes | SRS-069 |
 | No duplicate members | A `port_prototype_id` shall not appear twice within the same connection | SRS-070 |
 | Interface compatibility | Connected port prototypes must have compatible port interfaces | SRS-071 (TBD — rules not yet defined) |
-| Direction cardinality | Connection must contain ≥1 provider and ≥1 requester (stakeholder decision per SRS-072) | SRS-072 |
+| Direction cardinality | Connection must contain ≥1 provider and ≥1 requester | SRS-072 |
 | Member mutation revalidation | Any create or update of `PortConnectionMembers` revalidates the complete connection (all four rules above) as a single transaction; partial states that violate the rules are not persisted | SRS-122 |
 | TBD compatibility fallback | Until SRS-071 rules are defined, the server accepts connections without compatibility validation but creates a `ReviewIssue` (`issue_type` = `incomplete`, message: compatibility not verified) to prevent silent acceptance | SRS-125 |
 
@@ -353,7 +353,7 @@ SourceRequirements
 | `ReviewIssues.resolution` | Yes | Set when issue is resolved |
 | `ReviewIssues.artifact_unique_key` | Yes | Issue may not target a specific artifact |
 | `ReviewIssues.artifact_type` | Yes | NULL when `artifact_unique_key` is NULL |
-| Other cross-artifact type-reference FKs (`element_type_id` / `type_definition_id`) | Pending stakeholder decision (SRS-036a) — interim policy: NOT NULL | SRS-036a |
+| Other cross-artifact type-reference FKs (`element_type_id` / `type_definition_id`) | Nullable while unresolved; unresolved records cannot be approved or exported | SRS-036a |
 
 ### 3.4 Deterministic Generator/Exporter
 
@@ -420,7 +420,7 @@ SourceRequirements
 | Implementation | Python CLI command (`init_db`) |
 | Invocation | Manual — before first use and on version upgrades |
 | Idempotency | Safe to call repeatedly (SRS-098) |
-| Data preservation | Never drops or truncates existing tables (SRS-099) |
+| Data preservation | Preserves all existing rows and IDs; constraint-changing table rebuilds copy data and run transactionally (SRS-099, SRS-124) |
 | Versioning | Records schema version in metadata table (SRS-097) |
 | Current-version verification | Detects and reports missing expected tables or indexes; does not implicitly repair externally damaged schemas (SRS-096) |
 | Repair policy | Any future schema repair is an explicit administrative operation, separate from `init_db` |
@@ -805,7 +805,11 @@ Common determinism rules:
 
 ## 9. Open Items and TBDs
 
-These items from the SRS remain unresolved and affect detailed design. **No implementation baseline shall be established until the items marked "blocks baseline" are resolved.**
+These work-specific items remain unresolved because this external-development
+environment intentionally contains no real work information. Complete them only
+after transferring the repository to the work computer, using
+`docs/WORK_MACHINE_CONFIGURATION.md`. **No work-specific implementation baseline
+shall be established until the items marked "blocks baseline" are resolved.**
 
 | Item | Description | Owner | Closure Condition | Impact on HLD | Blocks Baseline? |
 |------|-------------|-------|-------------------|---------------|-------------------|
@@ -817,23 +821,22 @@ These items from the SRS remain unresolved and affect detailed design. **No impl
 | SRS-019(e) | Source-input adapters | Dev team | Documented and validated | Pre-processing pipeline | No (can be added incrementally) |
 | SRS-064 | AUTOSAR metamodel mapping for access_point/trigger | Dev team | Complete selection rule documented and validated | Generator mapping logic | Yes |
 | SRS-071 | Port interface compatibility rules for connections | Dev team | Compatibility rules documented and validated | Connection validation in MCP server (§3.2). Until defined, connections accepted with ReviewIssue created (SRS-125) | No (TBD fallback designed) |
-| SRS-036a | NULL-while-unresolved for non-port_interface FKs | Stakeholders | Decision documented | MCP validation rules for element_type_id | Yes |
-| SRS-046/053 | Parent-child approval rule (tightened in SRS v4.0) | Stakeholders | Confirmed or revised | Generator parent-child check | No (SRS v4.0 made a concrete choice; v5.0 added SRS-035c auto-demotion and SRS-092a rejected-child exclusion) |
-| SRS-072 | Connection direction cardinality (≥1 provider + ≥1 requester) | Stakeholders | Confirmed or revised | Connection validation | No (SRS v4.0 made a concrete choice) |
 | — | AUTOSAR package paths, metamodel/version info for templates | Dev team | Determined from real work data | Generator template inputs | Yes |
 
 ---
 
 ## 10. Stakeholder Decisions
 
-The SRS contains four stakeholder decisions. This HLD does **not** assume any particular outcome for pending decisions; it designs for both options and documents what changes with each decision.
+The technical decisions are now approved. SRS-015 remains an external security
+authorization that can only be resolved on the work computer; this HLD does not
+claim or assume that authorization.
 
 | Decision | Options | HLD If (A) | HLD If (B) | SRS Reference | Status |
 |----------|---------|------------|------------|---------------|--------|
 | Authorization to transfer work data to Gemini API | (A) Approved with documented conditions; (B) Not approved | System processes real data with data-minimization per SRS-015a | System operates on synthetic data only; no real-data processing | SRS-015 | **BLOCKING** |
-| NULL-while-unresolved for cross-artifact FKs beyond `port_interface_id` | (A) Only `port_interface_id` nullable; the four type-reference FKs remain NOT NULL at insert | Schema and MCP reject NULL type references; extraction must resolve types before referencing them | Schema and MCP allow NULL type references; an `unresolved_reference` ReviewIssue is added and the generator excludes unresolved records | SRS-036a | Pending |
-| Parent-child approval (SRS v4.0 chose: all children must be approved) | (A) All non-rejected children approved; (B) Pending children allowed | Generator exports fully-approved trees; rejected children excluded per SRS-092a; parent auto-demoted per SRS-035c | Generator must define child handling for pending children in output | SRS-046, SRS-053 | Pending — implementable as designed |
-| Connection cardinality (SRS v4.0 chose: ≥1 each) | (A) ≥1 provider + ≥1 requester; (B) Other rules | MCP validates cardinality on connection create/update | Different validation rule | SRS-072 | Pending — implementable as designed |
+| Nullable unresolved cross-artifact type references | Allow NULL; create `unresolved_reference` issue; block approval/export | Supports forward/circular references without inventing targets | — | SRS-036a | **Approved 2026-08-12** |
+| Parent-child approval | All non-rejected children must be approved; rejected children are omitted | Generator exports fully-approved non-rejected trees; parent auto-demotion preserves the invariant | — | SRS-046, SRS-053, SRS-092a | **Approved 2026-08-12** |
+| Connection cardinality | ≥1 provider + ≥1 requester | MCP validates cardinality on connection create/update | — | SRS-072 | **Approved 2026-08-12** |
 
 ---
 
@@ -881,3 +884,4 @@ The SRS contains four stakeholder decisions. This HLD does **not** assume any pa
 | 3.1     | 2026-08-10 | Post-LLD-review amendments aligned with SRS v5.1 (138 requirements). Changed diagram annotation from "approved external transfer" to "BLOCKED — requires stakeholder approval" (§2.1). Expanded §2.1 confidentiality with synthetic-mode gate and full projection/exclusion field lists. Updated §3.1 data-sent row. Added conditional deployment note. Added 3 new validation rules in §3.2: extraction caller cannot approve (SRS-082a), content-change demotion (SRS-082b), rejected-child exclusion in parent approval check (SRS-092a). Updated §5.2 set_review_status with caller parameter and scope restrictions. Added `description` to `create_port_prototype` input. Added SRS-082a, SRS-082b to traceability matrix. Updated coverage to 138/138. |
 | 3.2     | 2026-08-11 | Review-driven fixes. Fixed source reference from SRS v5.0 to v5.1 (L-03). Fixed diagram arrow label from "input text only" to "projected fields only" (L-04). Fixed deployment text from "approved transfer" to "BLOCKED pending stakeholder approval" (L-04). |
 | 3.3     | 2026-08-11 | Aligned with SRS v5.3 Phase 1 decisions. Explicitly defined current-version schema verification as report-only, reserved repair for a separate administrative operation, and recognized `SourceRequirements` as a reviewable input record. |
+| 3.4     | 2026-08-12 | Aligned with SRS v5.4. Approved nullable unresolved type references with issue creation and approval/export blocking, parent-child rejected exclusion, and minimum provider/requester cardinality. Deferred all real-work formats, identifiers, templates, paths, metamodel data, and compatibility rules to the work-machine checklist. |
