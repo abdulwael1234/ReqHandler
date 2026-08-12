@@ -7,8 +7,10 @@ rolls back rather than committing a broken graph (SRS-122, LLD-02 §10.3).
 See: LLD-02 §7.5 (Port Connection Tools), §10.3 (Transactional Revalidation)
 """
 
+import sqlite3
 from typing import Any
 
+from ..db.dal import DataAccessLayer
 from ..db.models import ARTIFACT_STATUSES
 from ..errors import McpResult, McpValidationError
 from ..validation.common import validate_position, validate_uuid_format
@@ -35,11 +37,27 @@ from .context import ToolContext
 
 _MEMBER_UPDATE_TOOL = "update_port_connection_member"
 
+def _record_compatibility_gap(
+    conn: sqlite3.Connection,
+    dal: DataAccessLayer,
+    unique_key: str,
+    source_requirement_id: int | None,
+) -> None:
+    """Pair every new connection with its SRS-125 issue, atomically.
+
+    Runs inside the create transaction: a connection that exists without the
+    issue saying its compatibility is unverified is exactly the silent
+    acceptance SRS-125 forbids.
+    """
+    create_compatibility_review_issue(conn, dal, unique_key, source_requirement_id)
+
+
 _CREATE = CreateSpec(
     tool="create_port_connection",
     table="PortConnections",
     fields=(FieldSpec("description", "description"),),
     refs=(RefSpec("source_requirement_key", "source_requirement_id", "SourceRequirements"),),
+    post_create=_record_compatibility_gap,
 )
 
 _UPDATE = UpdateSpec(
@@ -73,15 +91,12 @@ _CREATE_MEMBER = CreateSpec(
 
 
 def handle_create_port_connection(ctx: ToolContext, arguments: dict[str, Any]) -> dict[str, Any]:
-    """Create a connection and record that compatibility is unverified (SRS-125)."""
-    response = run_create(ctx, _CREATE, arguments)
-    connection_key = str(response["result"]["unique_key"])
-    with ctx.db.transaction() as conn:
-        connection = ctx.dal.get_record_by_unique_key(conn, "PortConnections", connection_key)
-        create_compatibility_review_issue(
-            conn, ctx.dal, connection_key, connection.source_requirement_id
-        )
-    return response
+    """Create a connection and record that compatibility is unverified (SRS-125).
+
+    The issue is written by `_record_compatibility_gap` inside the same
+    transaction as the connection row.
+    """
+    return run_create(ctx, _CREATE, arguments)
 
 
 def handle_update_port_connection(ctx: ToolContext, arguments: dict[str, Any]) -> dict[str, Any]:

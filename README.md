@@ -91,5 +91,15 @@ pytest
 
 ## Status
 
-**Phase:** Design in progress (Draft), implementation scaffolding in place — no operational code yet.  
+**Implemented:** Database schema and initializer (LLD-01, LLD-05), data access
+layer and connection management (LLD-02 §4–5), validation layer, all 35 MCP
+tools, and the MCP server adapter (LLD-02 §6–§11).
+
+**Remaining:** Deterministic Generator (LLD-04) and Local Review CLI (LLD-06).
+Both are docstring-only scaffolding today, so `r210-review` exits 1.
+
+**Unverified:** `R210McpServer.run()` — the `mcp` SDK is not installed in this
+environment, so the stdio transport has never been executed. Every tool is
+reachable without it through `handle_tool`.
+
 **Blocking decision:** SRS-015 — external data transfer to Gemini API requires stakeholder security approval. System operates on synthetic data until resolved.

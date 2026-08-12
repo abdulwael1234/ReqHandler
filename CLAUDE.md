@@ -57,20 +57,21 @@ implementation and to the tests that verify them.
 
 ## Implementation state
 
-Nearly every module under `src/` is a docstring-only stub describing what it will contain. Only two
-phases are built:
+`r210_mcp/` is complete. `r210_generator/` and `r210_review_cli/` are still docstring-only stubs —
+a file's docstring tells you what belongs there. `r210-review` therefore exits 1 (DEV-O-03).
 
 - **Phase 1** — `r210_db_init/` (migrations, initializer, CLI, dev_reset) and `r210_mcp/db/models.py`
-- **Phase 2** — `r210_mcp/errors.py`, `r210_mcp/db/connection.py`, `r210_mcp/db/dal.py`
+- **Phase 2** — `r210_mcp/errors.py`, `db/connection.py`, `db/dal.py`
+- **Phase 3** — `validation/`, `duplicate_detection.py`, `projection.py`, `tools/`, `server.py`
 
-Everything else (`validation/`, `tools/`, `server.py`, `duplicate_detection.py`, `r210_generator/`,
-`r210_review_cli/`) is scaffolding. A file's docstring tells you what belongs there.
+**Phase 3 absorbed Phases 4–6** (DEV-33): the documented split put parent-approval blocking in
+Phase 4 and duplicate detection in Phase 6, but LLD-02 §7.7 and §10.1 call that machinery from
+Phase 3 handlers, so it could not ship in that order. Only **Phase 7 (generator, LLD-04)** and
+**Phase 8 (review CLI, LLD-06)** remain. `REPOSITORY_REVIEW_REPORT.md` §7 uses an older five-phase
+map; ignore its numbering.
 
-**Two conflicting phase maps exist.** The repository follows the **eight-phase map** used by
-`PHASE1_IMPLEMENTED_REQUIREMENTS.md` §9 and the Phase 2 docs: 3 = tool handlers + status
-enforcement, 4 = parent/child approval rules, 5 = connection validation, 6 = duplicate detection,
-7 = generator, 8 = review CLI. `REPOSITORY_REVIEW_REPORT.md` §7 uses an older five-phase map;
-ignore its numbering.
+`R210McpServer.run()` has never been executed — the `mcp` SDK is not installed here. It is the one
+unverified path; everything else is reachable through `handle_tool`.
 
 ## Architecture
 
@@ -82,8 +83,30 @@ models.py (record dataclasses + registries)
       ↓
 dal.py (all SQL) ← connection.py (pragmas, transactions)
       ↓
-validation/ + tools/ (Phase 3+) → server.py
+validation/ + duplicate_detection.py
+      ↓
+tools/_engine.py (descriptors) → tools/<entity>.py (35 handlers)
+      ↓
+tools/registry.py (dispatch, error boundary, projection boundary)
+      ↓
+server.py (stdio adapter — the only module that imports `mcp`)
 ```
+
+**Handlers are functions, not methods** (DEV-26): `handle_x(ctx: ToolContext, arguments: dict)
+-> dict`. `ToolContext` carries the connection factory, the DAL and `adapter_mode`
+(`"extraction"` | `"review"`). That is what lets LLD-06's review CLI call tools directly and what
+keeps handler tests runnable without the SDK.
+
+**The registry is the only boundary that converts exceptions to responses**, and the only place
+SRS-015a projection is applied (DEV-30). A handler that returned a record with `source_text` in it
+is still safe in extraction mode; a handler that forgot to project would not be, which is why
+projection does not live in the handlers.
+
+**The 26 CRUD tools are descriptors, not code** (DEV-32). To add or change a field, edit the
+`CreateSpec`/`UpdateSpec`/`QuerySpec` in the entity module. The cross-cutting rules — SRS-091a
+status rejection, SRS-082b demotion, SRS-035c parent chaining, SRS-036a issue lifecycle — live once
+in `tools/_engine.py`. Four tools are irregular and written out: `create_type_definition`,
+`set_review_status`, `update_port_connection_member`, `resolve_reference`.
 
 **The schema has one source of truth, and everything else derives from it.**
 `migrations/v001_initial_schema.py` exposes `TABLE_DDL` / `INDEX_DDL`; the initializer's

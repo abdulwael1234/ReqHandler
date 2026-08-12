@@ -66,6 +66,18 @@ class RefSpec:
     may_be_unresolved: bool = False
 
 
+class PostCreateHook(Protocol):
+    """Extra work to run inside the create transaction, after the insert."""
+
+    def __call__(
+        self,
+        conn: sqlite3.Connection,
+        dal: DataAccessLayer,
+        unique_key: str,
+        source_requirement_id: int | None,
+    ) -> None: ...
+
+
 @dataclass(frozen=True)
 class CreateSpec:
     tool: str
@@ -75,6 +87,9 @@ class CreateSpec:
     duplicate_name_arg: str | None = None
     duplicate_kind_arg: str | None = None
     has_status: bool = True
+    # Runs inside the same transaction as the insert, so a tool whose
+    # requirement pairs a record with a ReviewIssue commits both or neither.
+    post_create: PostCreateHook | None = None
 
 
 @dataclass(frozen=True)
@@ -429,6 +444,9 @@ def run_create(ctx: ToolContext, spec: CreateSpec, arguments: dict[str, Any]) ->
                 artifact_type=ARTIFACT_TYPE_FOR_TABLE[spec.table],
                 artifact_unique_key=unique_key,
             )
+
+        if spec.post_create is not None:
+            spec.post_create(conn, ctx.dal, unique_key, source_requirement_id)
 
         demoted: list[str] = []
         if parent_id is not None:

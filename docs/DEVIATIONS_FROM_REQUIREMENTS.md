@@ -485,6 +485,227 @@ supplies only the lookup. Recorded so the split is not mistaken for an omission.
 
 ---
 
+## 4B. Phase 3 Deviations — Validation Layer, Tool Handlers, Server Adapter
+
+### DEV-25 — `McpValidationError` was never defined *(Gap-fill)*
+
+**Documents say:** LLD-02 §6.2 raises `McpValidationError(...)` throughout the
+validation layer. No definition appears anywhere in the LLD.
+
+**Implementation:** Defined in `errors.py` as an exception carrying a
+fully-formed `McpError`, with an `of(...)` constructor.
+
+**Rationale:** Phase 2 built `McpError` as a frozen dataclass — a value, not an
+exception. The validation layer needs to *raise*, and the dispatch boundary
+needs the structured payload SRS-109 requires. Carrying the payload on the
+exception means the boundary serializes it without reconstructing context it
+does not have.
+
+---
+
+### DEV-26 — Handlers are functions over a context, not bound methods *(Refinement)*
+
+**Documents say:** LLD-02 §9 defines all 35 handlers as `_handle_*` methods of
+`R210McpServer`.
+
+**Implementation:** Module-level functions taking a frozen `ToolContext`
+(connection factory, DAL, adapter mode) and returning a `dict`. `server.py`
+holds only the binding and the stdio adapter.
+
+**Rationale:** LLD-06 §1 requires the Local Review CLI to invoke handlers
+directly without the MCP protocol, and the `mcp` SDK is not installed in this
+environment. A design whose handlers are reachable only through a class that
+imports the SDK cannot satisfy either constraint. With a context parameter a
+test constructs one in a single line.
+
+**Effect on behaviour:** None. `R210McpServer.handle_tool(name, arguments)`
+still exists as LLD-02 §9 specifies.
+
+---
+
+### DEV-27 — SRS-036a's approval block had no code home *(Gap-fill)*
+
+**Documents say:** SRS-036a states "a record with an unresolved type reference
+shall not be approved or exported." LLD-02 assigns the creation half (create an
+`unresolved_reference` issue) but never places the approval block.
+
+**Implementation:** `validation/status.check_references_resolved`, called by
+`set_review_status` before any approval. For a `TypeDefinitions` record of kind
+`array` it checks the `ArrayTypeDefinitions` detail row, which is not
+independently reviewable (SRS-035a).
+
+**Rationale:** Without it the requirement is half-implemented: the issue is
+raised at creation and then ignored at the only point where it matters. The
+export half remains the generator's (Phase 7).
+
+---
+
+### DEV-28 — Six DAL methods added, not the four the LLD calls *(Addition)*
+
+**Documents say:** LLD-02 §6.2, §10.1 and §9 call `dal.get_record_by_id`,
+`dal.get_parent_record`, `dal.get_children` and `dal.query_table`. Phase 2 built
+none of them.
+
+**Implementation:** All four, plus generic `insert_record(conn, table, values)`
+and `update_record(conn, table, record_id, values)`.
+
+**Rationale:** The four are the LLD's own calls. The two extra exist because
+the descriptor engine writes to a table named by a descriptor; without them
+each of the 13 create tools would carry a hand-written wrapper naming its own
+columns — the duplication DEV-19 removed one layer down. Both follow the DAL's
+existing conventions: identifier allowlist, bound values, record returns.
+
+---
+
+### DEV-29 — Records are dataclasses, not dict-subscriptable rows *(Correction)*
+
+**Documents say:** LLD-02 §6.2 and §10.1 subscript records as dictionaries —
+`parent["status"]`, `record["unique_key"]`.
+
+**Implementation:** Attribute access throughout — `parent.status`.
+
+**Rationale:** Phase 2 returns frozen record dataclasses (DEV-17), so the
+LLD's pseudocode would raise `TypeError` as written.
+
+---
+
+### DEV-30 — Projection is applied once, at the dispatch boundary *(Refinement)*
+
+**Documents say:** LLD-02 §11.2 applies `GEMINI_PROJECTION` inside each query
+handler.
+
+**Implementation:** `tools/registry.dispatch` projects every tool response when
+`adapter_mode == "extraction"`. `projection.py` holds the allowlist.
+
+**Rationale:** SRS-015a is a confidentiality boundary; a rule enforced in six
+places can be forgotten in a seventh. Applied at dispatch, a handler cannot omit
+a step it does not perform, and the guarantee is one adversarial test over all
+35 tools rather than six hopeful ones.
+
+**Effect on behaviour:** Strictly stronger. Create and update responses are now
+projected too, which §11.2 did not cover.
+
+---
+
+### DEV-31 — `trigger_generation` reports the generator unavailable *(Boundary)*
+
+**Documents say:** LLD-02 §7.9 delegates to the generator component (LLD-04).
+
+**Implementation:** The tool is registered and validates `mode` against
+`{"r210_only", "report_only", "both"}`, then returns a structured `McpError`
+stating that generation is not yet implemented.
+
+**Rationale:** The generator is a later phase. Registering the tool keeps the
+surface complete and the contract real; returning a structured error is honest
+where a silent success would not be.
+
+---
+
+### DEV-32 — A descriptor engine behind the named handler surface *(Refinement)*
+
+**Documents say:** LLD-02 §7 writes each of the 35 handlers out individually.
+
+**Implementation:** The 13 creates, 13 updates and 6 queries are frozen
+descriptors executed by three engines in `tools/_engine.py`. Four irregular
+tools — `create_type_definition`, `set_review_status`,
+`update_port_connection_member`, `resolve_reference` — are written out.
+
+**Rationale:** The same move Phase 2 recorded as DEV-18. Written out, the
+SRS-082b demotion rule would be re-implemented twelve times and the SRS-091a
+rejection thirteen; one omission is a silent requirement violation rather than a
+test failure. `validate_subtype_matches_kind` returns its narrowed `dict` for
+the same reason — so the caller cannot re-derive a fact already proved.
+
+---
+
+### DEV-33 — Phase 3 absorbs Phases 4–6 *(Correction)*
+
+**Documents say:** `PHASE1_IMPLEMENTED_REQUIREMENTS.md` §9 assigns status
+enforcement to Phase 3, parent approval and demotion to Phase 4, connection
+validation to Phase 5, and duplicate detection to Phase 6.
+
+**Implementation:** All of it lands in Phase 3.
+
+**Rationale:** The split is not implementable in that order. LLD-02 §7.7 has
+`set_review_status` (Phase 3) call `check_parent_can_be_approved` and
+`auto_demote_parent_chain` (Phase 4); §10.1 has the Phase 3 content-demotion
+rule call the same Phase 4 chain; §7.2 has `create_type_definition` (Phase 3)
+call duplicate detection (Phase 6). Shipping Phase 3 alone would mean shipping
+handlers that violate their own requirements and repairing them later.
+Approved by the project owner on 2026-08-12. Phase 7 (generator) and Phase 8
+(review CLI) are unchanged.
+
+---
+
+### DEV-34 — Validators take the operation name *(Refinement)*
+
+**Documents say:** LLD-02 §6.1 gives signatures such as
+`validate_position(value, field_name)`.
+
+**Implementation:** Every validator takes a keyword-only `operation`, and
+optionally `affected_key`.
+
+**Rationale:** SRS-109 requires an error to identify the failing operation. A
+validator that never receives the tool name cannot construct one, so the LLD's
+signatures cannot produce a compliant error.
+
+---
+
+### DEV-35 — `table_hint` is optional *(Refinement)*
+
+**Documents say:** LLD-02 §7.7 marks `table_hint` a required parameter of
+`set_review_status`.
+
+**Implementation:** Accepted and ignored; the table comes from
+`resolve_unique_key`.
+
+**Rationale:** Keys are UUIDs unique across the database (SRS-027), so the hint
+adds no information the server cannot derive. A required hint introduces a
+second source of truth that can disagree with the first, and the resulting error
+would describe the caller's bookkeeping rather than the record.
+
+---
+
+### DEV-36 — Duplicate detection compares normalized forms over candidates *(Correction)*
+
+**Documents say:** DEV-24 recorded that the DAL performs the indexed,
+case-insensitive half of SRS-034 and the caller applies whitespace
+normalization.
+
+**Implementation:** `check_for_duplicates` queries the table (narrowed by
+`kind` where applicable) and compares `normalize_name` on both sides.
+
+**Rationale:** The split DEV-24 describes does not work. `find_duplicates_by_name`
+matches with `name = ? COLLATE NOCASE`, so a stored name whose internal spacing
+differs from the query never comes back — there is nothing for a caller-side
+filter to normalize. Post-filtering an exact-match query cannot widen it. SRS-034
+requires normalization on both sides, and SRS-113 rules out performance
+optimization for the prototype, so correctness against the requirement is chosen
+over the index. Caught by `test_matches_after_whitespace_normalization`.
+
+**Effect on behaviour:** Duplicate detection now finds the cases SRS-034
+describes. `find_duplicates_by_name` remains in the DAL, tested, and is no
+longer the sole basis for the SRS-034 comparison.
+
+---
+
+### DEV-37 — SRS-070 is enforced by the schema, not the validator *(Correction)*
+
+**Documents say:** LLD-02 §6.5 specifies `check_no_duplicate_members` as an
+application-level rule inside `validate_connection_complete`.
+
+**Implementation:** The check exists, but V001 already places a UNIQUE
+constraint on `(port_connection_id, port_prototype_id)`, so a duplicate member
+cannot be stored through the DAL at all. The validator branch is defence in
+depth for rows arriving another way, and the test pins the schema as the real
+enforcement point.
+
+**Rationale:** Recorded so that a future reader does not mistake an unreachable
+branch for dead code and delete it, and does not mistake the validator for the
+requirement's only guard.
+
+---
+
 ## 5. Deviation Index
 
 | ID | Type | Area | Approval |
@@ -512,7 +733,20 @@ supplies only the lookup. Recorded so the split is not mistaken for an omission.
 | DEV-21 | Refinement | Default arguments on `insert_*` | Phase 2 — pending review |
 | DEV-22 | Refinement | `update_status` structural column handling | Phase 2 — pending review |
 | DEV-23 | Refinement | `McpError` / `McpResult` field defaults | Phase 2 — pending review |
-| DEV-24 | Boundary | SRS-034 normalization deferred to Phase 6 | Phase 2 — pending review |
+| DEV-24 | Boundary | SRS-034 normalization deferred to Phase 6 | Phase 2 — superseded by DEV-36 |
+| DEV-25 | Gap-fill | `McpValidationError` definition | Phase 3 — pending review |
+| DEV-26 | Refinement | Handlers are functions over `ToolContext` | Phase 3 — pending review |
+| DEV-27 | Gap-fill | SRS-036a approval block (`check_references_resolved`) | Phase 3 — pending review |
+| DEV-28 | Addition | Six DAL methods for the graph and the engine | Phase 3 — pending review |
+| DEV-29 | Correction | Records are dataclasses, not dict rows | Phase 3 — pending review |
+| DEV-30 | Refinement | Projection applied at the dispatch boundary | Phase 3 — pending review |
+| DEV-31 | Boundary | `trigger_generation` reports generator unavailable | Phase 3 — pending review |
+| DEV-32 | Refinement | Descriptor engine behind the named handlers | Phase 3 — pending review |
+| DEV-33 | Correction | Phase 3 absorbs Phases 4–6 | **Approved by owner 2026-08-12** |
+| DEV-34 | Refinement | Validators take the operation name | Phase 3 — pending review |
+| DEV-35 | Refinement | `table_hint` optional on `set_review_status` | Phase 3 — pending review |
+| DEV-36 | Correction | SRS-034 compares normalized forms over candidates | Phase 3 — pending review |
+| DEV-37 | Correction | SRS-070 enforced by the schema, not the validator | Phase 3 — pending review |
 | DEV-O-01 | Resolved decision | Report-only behavior for damaged current-version schema | Approved; incorporated into SRS v5.3 |
 | DEV-O-02 | Resolved decision | Nullable unresolved cross-artifact type references | Approved and implemented in V002 |
 | DEV-O-03 | Open item | Broken `r210-review` entry point | Fix in Phase 8 |
@@ -522,7 +756,11 @@ All Phase 1 interpretations and deviations are explicitly recorded. Approved
 items are incorporated into the v5.4 requirements baseline. Remaining entries
 are either scheduled future-phase work or the external SRS-015 authorization.
 
-DEV-17 through DEV-24 record Phase 2 and have not yet been reviewed.
+DEV-17 through DEV-24 record Phase 2 and have not yet been reviewed. DEV-25
+through DEV-37 record Phase 3; only DEV-33, the phase-scope change, has been
+approved. DEV-36 supersedes DEV-24: the Phase 2 split of SRS-034 between an
+indexed DAL query and caller-side normalization does not work, because an
+exact-match query returns nothing for a caller to normalize.
 
 ---
 
@@ -534,3 +772,4 @@ DEV-17 through DEV-24 record Phase 2 and have not yet been reviewed.
 | 1.1     | 2026-08-11 | Recorded approval of DEV-01 through DEV-16, resolved DEV-O-01 as report-only, incorporated source-requirement reviewability into SRS v5.3, and retained DEV-O-02 as the remaining Phase 1 stakeholder decision. |
 | 1.2     | 2026-08-12 | Resolved DEV-O-02 by approving nullable unresolved type references and implementing V002. Recorded that work-specific configuration is intentionally deferred until transfer to the work computer. |
 | 1.3     | 2026-08-12 | Added section 4A covering Phase 2 (connection layer and DAL): DEV-17 through DEV-24. |
+| 1.4     | 2026-08-12 | Added section 4B covering Phase 3 (validation layer, 35 tool handlers, server adapter): DEV-25 through DEV-37. Recorded owner approval of DEV-33, the decision that Phase 3 absorbs Phases 4–6. DEV-36 supersedes DEV-24. |
