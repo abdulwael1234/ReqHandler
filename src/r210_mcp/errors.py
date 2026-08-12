@@ -49,3 +49,29 @@ class McpResult:
         if self.warnings:
             result["warnings"] = self.warnings
         return {"result": result}
+
+
+class McpValidationError(Exception):
+    """Raised by the validation layer and tool handlers (LLD-02 §6).
+
+    Carries a fully-formed `McpError` so the dispatch boundary can serialize it
+    without reconstructing context it does not have. LLD-02 §6 raises this type
+    throughout but never defines it (DEV-25).
+    """
+
+    def __init__(self, error: McpError) -> None:
+        super().__init__(error.reason)
+        self.error = error
+
+    @classmethod
+    def of(
+        cls,
+        operation: str,
+        reason: str,
+        *,
+        field: str | None = None,
+        affected_key: str | None = None,
+    ) -> "McpValidationError":
+        return cls(
+            McpError(operation=operation, field=field, reason=reason, affected_key=affected_key)
+        )

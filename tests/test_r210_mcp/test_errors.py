@@ -2,7 +2,7 @@
 
 import pytest
 
-from r210_mcp.errors import McpError, McpResult
+from r210_mcp.errors import McpError, McpResult, McpValidationError
 
 
 def test_mcp_error_requires_a_reason() -> None:
@@ -54,3 +54,27 @@ def test_mcp_result_omits_empty_warnings_and_uses_fresh_defaults() -> None:
     first.warnings.append("warning")
 
     assert second.to_dict() == {"result": {"unique_key": "second"}}
+
+
+class TestMcpValidationError:
+    def test_carries_the_structured_payload(self) -> None:
+        """SRS-109 — the exception must expose operation, field, reason, key."""
+        exc = McpValidationError.of(
+            "create_type_definition",
+            "name must not be empty",
+            field="name",
+            affected_key="abc",
+        )
+        assert exc.error.operation == "create_type_definition"
+        assert exc.error.field == "name"
+        assert exc.error.reason == "name must not be empty"
+        assert exc.error.affected_key == "abc"
+        assert exc.error.to_dict()["error"]["reason"] == "name must not be empty"
+
+    def test_str_is_the_reason(self) -> None:
+        exc = McpValidationError.of("update_enum_value", "position must be >= 1")
+        assert str(exc) == "position must be >= 1"
+
+    def test_is_an_exception(self) -> None:
+        with pytest.raises(McpValidationError):
+            raise McpValidationError.of("resolve_reference", "not found")
