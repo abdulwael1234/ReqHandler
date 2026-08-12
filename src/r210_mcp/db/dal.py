@@ -922,3 +922,63 @@ class DataAccessLayer:
             if record is not None:
                 return table, record
         return None
+
+    def get_record_by_id(self, conn: sqlite3.Connection, table: str, record_id: int) -> Any:
+        """Fetch by primary key from a table named at runtime (LLD-02 §10.1)."""
+        self._check_table(table)
+        return self._get_by(conn, TABLE_RECORD_MAP[table], "id", record_id)
+
+    def get_parent_record(
+        self, conn: sqlite3.Connection, child_table: str, child_id: int
+    ) -> tuple[str, Any] | None:
+        """Resolve a child's parent as (table, record), or None at the root.
+
+        Drives the SRS-035c demotion chain. Returns None when the table has no
+        parent, when the child is missing, or when the foreign key is NULL.
+        """
+        relation = CHILD_PARENT_MAP.get(child_table)
+        if relation is None:
+            return None
+        child = self.get_record_by_id(conn, child_table, child_id)
+        if child is None:
+            return None
+        parent_id = getattr(child, relation.fk_column)
+        if parent_id is None:
+            return None
+        parent = self.get_record_by_id(conn, relation.parent_table, parent_id)
+        if parent is None:
+            return None
+        return relation.parent_table, parent
+
+    def get_children(
+        self, conn: sqlite3.Connection, child_table: str, fk_column: str, parent_id: int
+    ) -> list[Any]:
+        """All children of one parent, in deterministic order (SRS-108)."""
+        self._check_table(child_table)
+        self._reject_unknown(child_table, {fk_column}, TABLE_COLUMNS[child_table])
+        rows = conn.execute(
+            f'SELECT {self._select_list(child_table)} FROM "{child_table}"'
+            f' WHERE "{fk_column}" = ? ORDER BY {self._order_by(child_table)}',
+            (parent_id,),
+        ).fetchall()
+        record_type = TABLE_RECORD_MAP[child_table]
+        return [self._to_record(record_type, row) for row in rows]
+
+    def query_table(
+        self, conn: sqlite3.Connection, table: str, filters: dict[str, Any] | None = None
+    ) -> list[Any]:
+        """Query a table named at runtime (LLD-02 §9)."""
+        self._check_table(table)
+        return self._query(conn, TABLE_RECORD_MAP[table], filters)
+
+    def insert_record(self, conn: sqlite3.Connection, table: str, values: dict[str, Any]) -> int:
+        """Insert into a table named at runtime, for the descriptor engine."""
+        self._check_table(table)
+        return self._insert(conn, TABLE_RECORD_MAP[table], values)
+
+    def update_record(
+        self, conn: sqlite3.Connection, table: str, record_id: int, values: dict[str, Any]
+    ) -> None:
+        """Update a table named at runtime, for the descriptor engine."""
+        self._check_table(table)
+        self._update(conn, TABLE_RECORD_MAP[table], record_id, values)

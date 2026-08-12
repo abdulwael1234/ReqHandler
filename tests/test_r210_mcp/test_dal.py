@@ -342,3 +342,82 @@ class TestConstraintsPropagate:
     ) -> None:
         with pytest.raises(sqlite3.IntegrityError):
             dal.insert_struct_element(conn, "se-bad", 9999, "x", None, 1)
+
+
+class TestGraphAndGenericMethods:
+    """The methods LLD-02 §6.2, §10 and §9 call that Phase 2 did not build."""
+
+    def test_get_record_by_id_round_trips(self, initialized_db: str) -> None:
+        """SRS-026 — records are addressable by their integer primary key."""
+        db, dal = DatabaseConnection(initialized_db), DataAccessLayer()
+        with db.transaction() as connection:
+            record_id = dal.insert_source_requirement(connection, "k1", "REQ-1")
+        with db.read_only() as connection:
+            record = dal.get_record_by_id(connection, "SourceRequirements", record_id)
+        assert record.unique_key == "k1"
+
+    def test_get_record_by_id_returns_none_when_absent(self, initialized_db: str) -> None:
+        db, dal = DatabaseConnection(initialized_db), DataAccessLayer()
+        with db.read_only() as connection:
+            assert dal.get_record_by_id(connection, "SourceRequirements", 9999) is None
+
+    def test_get_parent_record_resolves_the_relation(self, initialized_db: str) -> None:
+        """SRS-035c — the demotion chain needs child to parent navigation."""
+        db, dal = DatabaseConnection(initialized_db), DataAccessLayer()
+        with db.transaction() as connection:
+            parent_id = dal.insert_type_definition(connection, "td", "Colour", "enum")
+            child_id = dal.insert_enum_value(connection, "ev", parent_id, "RED", None, 1)
+        with db.read_only() as connection:
+            found = dal.get_parent_record(connection, "EnumValues", child_id)
+        assert found is not None
+        table, parent = found
+        assert table == "TypeDefinitions"
+        assert parent.unique_key == "td"
+
+    def test_get_parent_record_returns_none_for_a_root_table(self, initialized_db: str) -> None:
+        db, dal = DatabaseConnection(initialized_db), DataAccessLayer()
+        with db.transaction() as connection:
+            record_id = dal.insert_type_definition(connection, "td2", "Speed", "struct")
+        with db.read_only() as connection:
+            assert dal.get_parent_record(connection, "TypeDefinitions", record_id) is None
+
+    def test_get_children_is_position_ordered(self, initialized_db: str) -> None:
+        """SRS-037, SRS-108 — children come back in declaration order."""
+        db, dal = DatabaseConnection(initialized_db), DataAccessLayer()
+        with db.transaction() as connection:
+            parent_id = dal.insert_type_definition(connection, "td3", "Mode", "enum")
+            dal.insert_enum_value(connection, "b", parent_id, "B", None, 2)
+            dal.insert_enum_value(connection, "a", parent_id, "A", None, 1)
+        with db.read_only() as connection:
+            children = dal.get_children(connection, "EnumValues", "enum_type_id", parent_id)
+        assert [child.unique_key for child in children] == ["a", "b"]
+
+    def test_query_table_applies_filters(self, initialized_db: str) -> None:
+        db, dal = DatabaseConnection(initialized_db), DataAccessLayer()
+        with db.transaction() as connection:
+            dal.insert_source_requirement(connection, "q1", "REQ-A")
+            dal.insert_source_requirement(connection, "q2", "REQ-B")
+        with db.read_only() as connection:
+            rows = dal.query_table(connection, "SourceRequirements", {"source_reference": "REQ-B"})
+        assert [row.unique_key for row in rows] == ["q2"]
+
+    def test_insert_and_update_record_are_generic(self, initialized_db: str) -> None:
+        db, dal = DatabaseConnection(initialized_db), DataAccessLayer()
+        with db.transaction() as connection:
+            record_id = dal.insert_record(
+                connection,
+                "SourceRequirements",
+                {"unique_key": "g1", "source_reference": "REQ-G"},
+            )
+            dal.update_record(connection, "SourceRequirements", record_id, {"source_text": "body"})
+        with db.read_only() as connection:
+            record = dal.get_record_by_id(connection, "SourceRequirements", record_id)
+        assert record.source_text == "body"
+
+    def test_generic_methods_reject_an_unknown_table(self, initialized_db: str) -> None:
+        db, dal = DatabaseConnection(initialized_db), DataAccessLayer()
+        with db.read_only() as connection:
+            with pytest.raises(ValueError):
+                dal.query_table(connection, "Nonexistent", None)
+            with pytest.raises(ValueError):
+                dal.insert_record(connection, "schema_version", {"version": 9})
