@@ -364,6 +364,123 @@ process real work data until this is resolved.
 
 ---
 
+## 4A. Phase 2 Deviations — Connection Layer and DAL
+
+LLD-02 §5.1 presents the DAL as "representative, not exhaustive", so the method
+set below it is derived rather than transcribed. These entries record where the
+implementation departs from the sketch.
+
+### DEV-17 — DAL returns record dataclasses, not `sqlite3.Row` *(Refinement)*
+
+**LLD-02 §5.1:** `get_source_requirement_by_key(...) -> Optional[Row]`,
+`query_source_requirements(...) -> list[Row]`.
+
+**Implementation:** these return `SourceRequirementRecord | None` and
+`list[SourceRequirementRecord]`.
+
+**Rationale:** this is what DEV-11 created `TABLE_RECORD_MAP` for — "the DAL
+needs to map query results to records". Returning `Row` would push that mapping
+into every one of the thirty-odd Phase 3 call sites, where a mis-indexed column
+is a silent wrong value rather than a type error. Records also make the layer's
+output immutable, matching the frozen dataclasses Phase 1 defined.
+
+---
+
+### DEV-18 — Generic SQL core behind the named method surface *(Refinement)*
+
+**LLD-02 §5.1** implies one hand-written statement per method.
+
+**Implementation:** the public methods the LLD names are thin wrappers over
+`_insert`, `_update`, `_get_by`, and `_query`, which build parameterized SQL
+from a table registry.
+
+**Rationale:** fifteen tables share four statement shapes. Writing them out
+once means a fix to quoting, ordering, or placeholder handling lands
+everywhere, and roughly halves the module. The typed wrappers are retained
+precisely so that Phase 3 call sites stay checkable under `mypy --strict` —
+the generic core is not exposed as the public interface.
+
+**Safety note:** SQLite cannot parameterize identifiers, so building SQL from a
+table name is only safe because every table and column name is resolved
+through the registry and rejected if unknown. Values are always bound with `?`.
+
+---
+
+### DEV-19 — Column registry derived from the record dataclasses *(Addition)*
+
+**Implementation:** `TABLE_COLUMNS` in `dal.py` is built from
+`dataclasses.fields(TABLE_RECORD_MAP[table])` rather than written out.
+
+**Rationale:** DEV-15 pinned record field order to column order. Deriving the
+DAL's column lists from that same source means there is no third list to keep
+in sync with the schema and the models — a column added to a table and its
+record is automatically writable, and one added to only one of them fails the
+existing Phase 1 contract test.
+
+---
+
+### DEV-20 — `schema_version` excluded from the DAL surface *(Refinement)*
+
+**Implementation:** `DAL_TABLES` is `TABLE_RECORD_MAP` minus `schema_version`;
+naming it raises `ValueError`.
+
+**Rationale:** the version table is owned by the initializer (LLD-05 §4.3), has
+no `unique_key`, and must not be writable through the layer the MCP tools call.
+
+---
+
+### DEV-21 — Default arguments on `insert_*` methods *(Refinement)*
+
+**LLD-02 §5.1** shows every column as a required parameter.
+
+**Implementation:** nullable columns default to `None` and `status` defaults to
+`pending_review` / `pending`, matching the schema defaults (SRS-035a).
+
+**Rationale:** the alternative is every call site restating the schema's own
+defaults. The database remains the authority — the defaults here only spare
+callers from repeating it.
+
+---
+
+### DEV-22 — `update_status` rejects structurally impossible writes *(Refinement)*
+
+**Implementation:** `update_status` raises `ValueError` when the target table
+has no `status` column, or when a `review_note` is supplied for a table that
+has no such column.
+
+**Rationale:** SRS-035a gives the seven reviewable child types a review state
+but no note column, and gives the two structural subtype tables neither. These
+are schema facts, not review policy, so catching them here produces a clear
+error instead of a confusing SQL failure. Whether a *transition* is permitted
+(SRS-035b) remains the validation layer's decision in Phase 3.
+
+---
+
+### DEV-23 — `McpError` and `McpResult` field defaults *(Refinement)*
+
+**Implementation:** `field`, `affected_key`, and `resolution` default to `None`;
+`data` and `warnings` use `default_factory`. Both dataclasses are frozen.
+
+**Rationale:** LLD-02 §3.1–3.2 shows no defaults, but most errors carry no
+field name and most results carry no warnings. Mutable defaults require
+`default_factory` in any case.
+
+---
+
+### DEV-24 — `find_duplicates_by_name` implements only the SQL half of SRS-034 *(Boundary)*
+
+**Implementation:** the query matches case-insensitively via `COLLATE NOCASE`.
+The whitespace normalization SRS-034 also specifies — trim, then collapse
+internal runs to a single space — is not applied here.
+
+**Rationale:** normalizing inside the query would diverge from the
+`COLLATE NOCASE` indexes V001 created for it and degrade the lookup to a table
+scan. The caller normalizes before calling. SRS-034 and SRS-121 are assigned to
+Phase 6, which owns both the normalization and the decision to warn; Phase 2
+supplies only the lookup. Recorded so the split is not mistaken for an omission.
+
+---
+
 ## 5. Deviation Index
 
 | ID | Type | Area | Approval |
@@ -384,6 +501,14 @@ process real work data until this is resolved.
 | DEV-14 | Gap-fill | `SourceRequirements` treated as reviewable input | Approved; incorporated into SRS v5.3 |
 | DEV-15 | Refinement | Field order pinned to column order | Approved |
 | DEV-16 | Refinement | PEP 604 optional syntax | Approved |
+| DEV-17 | Refinement | DAL returns records, not `Row` | Phase 2 — pending review |
+| DEV-18 | Refinement | Generic SQL core behind named methods | Phase 2 — pending review |
+| DEV-19 | Addition | Column registry derived from dataclasses | Phase 2 — pending review |
+| DEV-20 | Refinement | `schema_version` outside the DAL surface | Phase 2 — pending review |
+| DEV-21 | Refinement | Default arguments on `insert_*` | Phase 2 — pending review |
+| DEV-22 | Refinement | `update_status` structural checks | Phase 2 — pending review |
+| DEV-23 | Refinement | `McpError` / `McpResult` field defaults | Phase 2 — pending review |
+| DEV-24 | Boundary | SRS-034 normalization deferred to Phase 6 | Phase 2 — pending review |
 | DEV-O-01 | Resolved decision | Report-only behavior for damaged current-version schema | Approved; incorporated into SRS v5.3 |
 | DEV-O-02 | Resolved decision | Nullable unresolved cross-artifact type references | Approved and implemented in V002 |
 | DEV-O-03 | Open item | Broken `r210-review` entry point | Fix in Phase 8 |
@@ -392,6 +517,8 @@ process real work data until this is resolved.
 All Phase 1 interpretations and deviations are explicitly recorded. Approved
 items are incorporated into the v5.4 requirements baseline. Remaining entries
 are either scheduled future-phase work or the external SRS-015 authorization.
+
+DEV-17 through DEV-24 record Phase 2 and have not yet been reviewed.
 
 ---
 
@@ -402,3 +529,4 @@ are either scheduled future-phase work or the external SRS-015 authorization.
 | 1.0     | 2026-08-11 | Initial version covering Phase 1 (database foundation). |
 | 1.1     | 2026-08-11 | Recorded approval of DEV-01 through DEV-16, resolved DEV-O-01 as report-only, incorporated source-requirement reviewability into SRS v5.3, and retained DEV-O-02 as the remaining Phase 1 stakeholder decision. |
 | 1.2     | 2026-08-12 | Resolved DEV-O-02 by approving nullable unresolved type references and implementing V002. Recorded that work-specific configuration is intentionally deferred until transfer to the work computer. |
+| 1.3     | 2026-08-12 | Added section 4A covering Phase 2 (connection layer and DAL): DEV-17 through DEV-24. |
