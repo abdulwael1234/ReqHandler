@@ -5,7 +5,7 @@
 | Field                | Value                                                        |
 |----------------------|--------------------------------------------------------------|
 | **Document ID**      | R210-DEV-01                                                  |
-| **Date**             | 2026-08-12                                                   |
+| **Date**             | 2026-08-13                                                   |
 | **Source Documents** | R210-SRS-001 v5.4, R210-LLD-01 v1.1, R210-LLD-02 v1.5, R210-LLD-05 v1.4 |
 | **Companion**        | `docs/PHASE1_IMPLEMENTED_REQUIREMENTS.md`                    |
 | **Status**           | Living document — updated as each phase is implemented        |
@@ -631,8 +631,13 @@ validation to Phase 5, and duplicate detection to Phase 6.
 rule call the same Phase 4 chain; §7.2 has `create_type_definition` (Phase 3)
 call duplicate detection (Phase 6). Shipping Phase 3 alone would mean shipping
 handlers that violate their own requirements and repairing them later.
-Approved by the project owner on 2026-08-12. Phase 7 (generator) and Phase 8
-(review CLI) are unchanged.
+Approved by the project owner on 2026-08-12.
+
+**Follow-on (2026-08-13):** absorbing three phases retired the original
+eight-phase map. What it called Phases 7 and 8 are now Phase 4 and Phase 5,
+split at the work-configuration boundary rather than by component. The
+authoritative mapping is `docs/REMAINING_WORK.md` §1A; references to "Phase 7"
+or "Phase 8" elsewhere in this document are historical and mean those rows.
 
 ---
 
@@ -811,3 +816,4 @@ which is the level at which they arose.
 | 1.3     | 2026-08-12 | Added section 4A covering Phase 2 (connection layer and DAL): DEV-17 through DEV-24. |
 | 1.4     | 2026-08-12 | Added section 4B covering Phase 3 (validation layer, 35 tool handlers, server adapter): DEV-25 through DEV-37. Recorded owner approval of DEV-33, the decision that Phase 3 absorbs Phases 4–6. DEV-36 supersedes DEV-24. |
 | 1.5     | 2026-08-12 | Closed the Phase 3 register. DEV-25 through DEV-38 are incorporated into LLD-02 v1.5, which now matches the implementation section by section. Added DEV-38, the one entry resolved by correcting the code rather than the document: §11.2 already restricted create responses to `unique_key` and warnings, the implementation was returning full projected records, and the restriction now extends to update tools. Closed DEV-O-03 — its premise (a missing `cli.py`) is out of date; the entry point resolves and the CLI itself is Phase 8 scope. No Phase 3 entry required an SRS amendment. |
+| 1.6     | 2026-08-13 | Recorded that absorbing three phases retired the original eight-phase map (DEV-33 follow-on) and pointed at `docs/REMAINING_WORK.md` §1A as the authoritative old-to-new mapping. References to "Phase 7"/"Phase 8" in earlier entries are historical. |

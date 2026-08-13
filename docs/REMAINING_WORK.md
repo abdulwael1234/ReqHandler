@@ -5,11 +5,12 @@
 | Field                | Value                                                        |
 |----------------------|--------------------------------------------------------------|
 | **Document ID**      | R210-REM-01                                                  |
-| **Date**             | 2026-08-12                                                   |
+| **Date**             | 2026-08-13                                                   |
 | **Source Documents** | R210-SRS-001 v5.4, R210-LLD-03 v1.3, R210-LLD-04 v1.3, R210-LLD-06 v1.2 |
 | **Companions**       | `docs/PHASE1_IMPLEMENTED_REQUIREMENTS.md`, `docs/PHASE2_IMPLEMENTED_REQUIREMENTS.md`, `docs/PHASE3_IMPLEMENTED_REQUIREMENTS.md` |
 | **Status**           | Living document — updated as each remaining item closes       |
 | **Superseded by**    | `docs/PHASE4_SCOPE.md`, `docs/PHASE5_SCOPE.md` for phase-level planning |
+| **Phase numbering**  | See §1A — authoritative; the original eight-phase map is retired |
 
 ---
 
@@ -31,6 +32,31 @@ different people:
 
 ---
 
+## 1A. Phase Numbering — Authoritative Map
+
+The repository has carried two phase maps, and the Phase 3 scope change
+(DEV-33) invalidated the second one. **This table is the authoritative map.**
+The original eight-phase map is retired; references to "Phase 6/7/8" in
+documents written before 2026-08-13 mean the rows below.
+
+| Original eight-phase map | Delivered as | Record |
+|--------------------------|--------------|--------|
+| 1 — Database foundation | **Phase 1** | `PHASE1_IMPLEMENTED_REQUIREMENTS.md` |
+| 2 — Data access layer | **Phase 2** | `PHASE2_IMPLEMENTED_REQUIREMENTS.md` |
+| 3 — Tool handlers, status enforcement | **Phase 3** | `PHASE3_IMPLEMENTED_REQUIREMENTS.md` |
+| 4 — Parent approval and demotion | **Phase 3** (absorbed, DEV-33) | ” |
+| 5 — Connection validation | **Phase 3** (absorbed, DEV-33) | ” |
+| 6 — Duplicate detection | **Phase 3** (absorbed, DEV-33) | ” |
+| 7 — Deterministic generator | **split** — core and review report to **Phase 4**; R210 rendering to **Phase 5** | `PHASE4_SCOPE.md`, `PHASE5_SCOPE.md` |
+| 8 — Local review CLI | **Phase 4** | `PHASE4_SCOPE.md` |
+| *(not in the original map)* Gemini CLI Skill, LLD-03 | **Phase 4** | `PHASE4_SCOPE.md` |
+| *(new)* Phase 3 remediation, D-01–D-04 | **Phase 4** §3.0 | `PHASE4_SCOPE.md` |
+
+Phase numbers now follow delivery order and nothing else. A phase that changes
+scope is recorded as a deviation, as DEV-33 was, rather than renumbered.
+
+---
+
 ## 2. Current State
 
 Three of six components are complete. Nothing below is partially built: each
@@ -41,12 +67,17 @@ they will contain.
 |-----------|-----|-------|
 | Database Schema | LLD-01 | **Complete** (Phase 1) |
 | Database Initializer | LLD-05 | **Complete** (Phase 1) |
-| MCP Server | LLD-02 | **Complete** (Phases 2–3) — `run()` unverified, see §4.1 |
+| MCP Server | LLD-02 | **Implemented with known acceptance defects** (Phases 2–3) — D-01–D-04, see §4.3; `run()` unverified, see §4.1 |
 | Gemini CLI Skill | LLD-03 | **Stub** — see §3.1 |
 | Deterministic Generator | LLD-04 | **Stub** — see §3.2 |
 | Local Review CLI | LLD-06 | **Stub** — see §3.3 |
 
-590 tests pass; `ruff check src tests` and `mypy src` (strict) are clean.
+**Current result (2026-08-13):** 650 tests collected, 639 passed, 11 failed.
+The 11 failures are the acceptance cases for defects D-01–D-03 (§4.3).
+`ruff check src tests` and `mypy src` (strict) are clean.
+
+The 590-passing figure quoted in the Phase 3 record is the *pre-acceptance*
+result, before the independent suite was added. It is historical, not current.
 
 ---
 
@@ -88,7 +119,7 @@ warnings and demoted keys — no record fields (DEV-38). A skill written to read
 **Blocked by:** nothing technical. Note that SRS-015 remains unapproved (§5.1),
 so the skill cannot be exercised against real requirement text regardless.
 
-### 3.2 Deterministic Generator (LLD-04) — "Phase 7"
+### 3.2 Deterministic Generator (LLD-04) — Phases 4 and 5
 
 **Files:** `src/r210_generator/` — 14 modules totalling ~110 lines of
 docstrings. Every one is a stub.
@@ -101,7 +132,7 @@ docstrings. Every one is a stub.
 | §6 | `r210/renderer.py`, `r210/templates/*` | R210 file rendering, four templates | SRS-103, SRS-073 |
 | §6.3–6.5 | `r210/renderer.py` | Artifact and child ordering; rejected-child exclusion | SRS-101, SRS-108, SRS-092a |
 | §6.7 | `r210/templates/*` | AUTOSAR metamodel mapping | SRS-064 — **TBD, see §5.3** |
-| §7 | `report/builder.py`, `report/sections.py` | Review report, seven sections | SRS-104 |
+| §7 | `report/builder.py`, `report/sections.py` | Review report, eight sections (a)–(h) | SRS-104 |
 | §8 | `r210/file_writer.py` | UTF-8/LF, byte-identical output | SRS-101 |
 | §9 | `loader.py` | Database snapshot loading | SRS-101 |
 | §10 | `models.py` | `GenerationResult` | SRS-090 |
@@ -119,7 +150,7 @@ belongs here.
 building report-only generation first for exactly this reason, since it depends
 on the database snapshot rather than on work-specific templates.
 
-### 3.3 Local Review CLI (LLD-06) — "Phase 8"
+### 3.3 Local Review CLI (LLD-06) — Phase 4
 
 **Files:** `src/r210_review_cli/` — 9 modules totalling ~68 lines. `cli.py`
 defines `main()`, which prints `r210-review: not yet implemented` and exits 1.
@@ -283,4 +314,5 @@ Items 1–3 need no decisions from anyone. Items 4–5 do.
 
 | Version | Date       | Changes |
 |---------|------------|---------|
-| 1.0     | 2026-08-12 | Initial listing, written after Phase 3 completion. |
+| 1.0     | 2026-08-12 | Initial listing, written after Phase 3 implementation. |
+| 1.1     | 2026-08-13 | Added §1A, the authoritative phase map, retiring the original eight-phase numbering. Recorded the acceptance defects (§4.3), corrected the MCP Server status to "implemented with known acceptance defects", updated the current test result to 650/639/11, corrected the review report to eight sections and the CLI to twelve commands. |

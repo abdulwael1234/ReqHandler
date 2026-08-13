@@ -9,7 +9,7 @@
 | **Date**             | 2026-08-13                                                   |
 | **Source Documents** | R210-SRS-001 v5.4, R210-LLD-04 v1.3 §6                       |
 | **Predecessor**      | `docs/PHASE4_SCOPE.md`                                       |
-| **Companion**        | `docs/WORK_MACHINE_CONFIGURATION.md`                         |
+| **Companion**        | `docs/WORK_MACHINE_CONFIGURATION.md`; `docs/REMAINING_WORK.md` §1A for the phase map |
 | **Status**           | **Blocked** — cannot start until the entry criteria in §2 are met |
 
 ---
@@ -18,6 +18,10 @@
 
 Phase 5 delivers R210 AUTOSAR requirement file generation (SRS-103): the one
 part of the system that cannot be written without work-specific configuration.
+
+**Numbering.** This is Phase 5 in delivery order. It is the part of what the
+retired eight-phase map called Phase 7 that depends on work-specific
+configuration; see `docs/REMAINING_WORK.md` §1A.
 
 It is a small phase by module count and a large one by verification effort.
 Almost all of it is rendering against templates that do not exist in this
@@ -97,7 +101,7 @@ repeatability across runs.
 | SRS | Requirement (abridged) | Deliverable |
 |-----|------------------------|-------------|
 | SRS-103 | Generate R210 files for the supported artifact types | §3.1 |
-| SRS-101 | Byte-identical R210 output from approved trees | §3.3 |
+| SRS-101 | Byte-identical R210 output from approved trees — completes the requirement, which Phase 4 satisfies for the review report only | §3.3 |
 | SRS-064 | `access_point` / `trigger` metamodel mapping | §3.1 (§6.7) |
 | SRS-073 | Port connection rendering | §3.1 |
 | SRS-090 | All three generation modes operative | §3.2 |
@@ -188,3 +192,4 @@ the blockage is a configuration decision, not an engineering one.
 | Version | Date       | Changes |
 |---------|------------|---------|
 | 1.0     | 2026-08-13 | Initial scope, agreed after the Phase 3 hand-off. |
+| 1.1     | 2026-08-13 | Review fixes: clarified delivery-order numbering against the retired eight-phase map; recorded that this phase completes SRS-101, which Phase 4 satisfies only for the review report. |

@@ -165,6 +165,11 @@ repository directory; append `-p no:cacheprovider` to silence the warning.
 
 ## 8. What Phase 2 Deliberately Does Not Do
 
+> **Superseded numbering (2026-08-13).** The phase column below uses the
+> original eight-phase map, now retired. `docs/REMAINING_WORK.md` §1A carries
+> the authoritative old-to-new mapping: its Phases 4–6 were absorbed into
+> Phase 3 (DEV-33), and its Phases 7–8 are now Phase 4 and Phase 5.
+
 | SRS | Requirement | Owning phase |
 |-----|-------------|--------------|
 | SRS-035b, SRS-082a, SRS-082b, SRS-091a | Status transition enforcement, approval authority, content-change demotion | Phase 3 |

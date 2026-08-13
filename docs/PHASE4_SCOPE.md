@@ -10,7 +10,7 @@
 | **Source Documents** | R210-SRS-001 v5.4, R210-LLD-03 v1.3, R210-LLD-04 v1.3, R210-LLD-06 v1.2 |
 | **Predecessor**      | `docs/PHASE3_IMPLEMENTED_REQUIREMENTS.md`                    |
 | **Successor**        | `docs/PHASE5_SCOPE.md`                                       |
-| **Companion**        | `docs/REMAINING_WORK.md`                                     |
+| **Companion**        | `docs/REMAINING_WORK.md` (§1A carries the authoritative phase map) |
 | **Status**           | Scope agreed — design spec and implementation plan not yet written |
 
 ---
@@ -21,8 +21,15 @@ Phase 4 delivers **everything that is not blocked by work-computer
 configuration**. It ends at the first point where the prototype is usable by a
 human reviewer end to end on synthetic data.
 
-Phase 5 delivers what remains, and cannot begin until two TBDs close. That
-boundary is forced, not chosen — see §2.
+Phase 5 delivers what remains, and cannot begin until its entry criteria close
+— two TBDs (SRS-019(c), SRS-064) plus the work-computer configuration values
+they depend on, enumerated in `docs/PHASE5_SCOPE.md` §2. That boundary is
+forced, not chosen — see §2 below.
+
+**Numbering.** This is Phase 4 in delivery order. It covers what the retired
+eight-phase map called Phases 7 and 8, minus the part deferred to Phase 5, plus
+the Gemini skill and the Phase 3 remediation in §3.0. See
+`docs/REMAINING_WORK.md` §1A.
 
 ---
 
@@ -53,15 +60,16 @@ The seam is therefore precise and lands on a package boundary:
 ### 3.0 Phase 3 defect fixes *(first, before anything else)*
 
 Independent acceptance testing on 2026-08-13 found three behavioural defects
-and one architectural finding in the Phase 3 surface, all verified against
-LLD-02 and recorded in `docs/PHASE3_IMPLEMENTED_REQUIREMENTS.md` §11.
+in the Phase 3 surface, plus one architectural conformance issue found by
+inspection. All four are verified against LLD-02 and recorded in
+`docs/PHASE3_IMPLEMENTED_REQUIREMENTS.md` §11.
 
 | ID | Defect | SRS | Severity |
 |----|--------|-----|----------|
-| D-01 | `create_port_connection` takes no `members` array, creates the connection non-atomically, and never validates completeness on either creation path — an invalid connection persists | SRS-069, SRS-070, SRS-072, SRS-084, SRS-122 | Critical |
+| D-01 | Connection creation is neither atomic nor validated: `create_port_connection` takes no `members` array and creates the parent alone, and neither it nor `create_port_connection_member` revalidates completeness — an invalid connection persists | SRS-069, SRS-070, SRS-072, SRS-084, SRS-122 | Critical |
 | D-02 | `update_type_definition` rejects `subtype`, so an unresolved **array** element type can never be resolved and its issue never closes | SRS-036a | High |
 | D-03 | `artifact_type` / `artifact_unique_key` pairing enforced in one direction only | SRS-074 | Medium |
-| D-04 | `get_stats` executes SQL directly in `tools/registry.py` instead of through the DAL | — | Architectural |
+| D-04 | `get_stats` executes SQL directly in `tools/registry.py` instead of through the DAL | — | Architectural conformance (no test failure) |
 
 **Why these come first.** D-01 and D-02 are both prerequisites for work in this
 phase. The review CLI's `show` command displays connections and their members
@@ -75,9 +83,9 @@ refused.
 D-04 is small and worth doing while the surrounding code is open: it needs a
 DAL method for row and status counts, after which `registry.py` holds no SQL.
 
-**Done when:** the acceptance suite reports 60 of 60 passing, and the four
-requirement rows in `PHASE3_IMPLEMENTED_REQUIREMENTS.md` §§3–5 return from
-Partial to Full.
+**Done when:** the acceptance suite reports 60 of 60 passing, the full suite
+reports 650 of 650, and the four requirement rows in
+`PHASE3_IMPLEMENTED_REQUIREMENTS.md` §§3–5 return from Partial to Full.
 
 ### 3.1 Local Review CLI (LLD-06, SRS-123)
 
@@ -184,7 +192,7 @@ This closes the last untested path in an otherwise complete component.
 | SRS | Requirement (abridged) | Deliverable |
 |-----|------------------------|-------------|
 | SRS-090 | Operation to request generation | §3.3 (`report_only`) |
-| SRS-101 | Byte-identical output; report depends on the full snapshot | §3.2 |
+| SRS-101 | Byte-identical output — **Partial**: this phase can satisfy determinism for the *review report* only. R210-output determinism is verified in Phase 5, so SRS-101 stays Partial until then | §3.2 |
 | SRS-102 | Validate approved records; exclude FK-invalid ones | §3.2 |
 | SRS-104 | Review report, producible independently, eight sections | §3.2 |
 | SRS-104a | Parent exported only when all non-rejected children approved | §3.2 |
@@ -297,3 +305,4 @@ precedent and should be written adversarially: the CLI's network isolation
 | Version | Date       | Changes |
 |---------|------------|---------|
 | 1.0     | 2026-08-13 | Initial scope, agreed after the Phase 3 hand-off. |
+| 1.1     | 2026-08-13 | Review fixes: clarified the delivery-order numbering against the retired eight-phase map; marked SRS-101 Partial for this phase, since R210-output determinism belongs to Phase 5; widened D-01 to cover both creation paths; reclassified D-04 as an architectural conformance issue rather than a defect; stated the Phase 5 entry criteria as more than two TBDs. |

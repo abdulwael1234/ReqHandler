@@ -41,12 +41,16 @@ everything between that layer and the MCP protocol.
 | `tools/registry.py` | Dispatch, error boundary, projection boundary, non-MCP helpers (§9) |
 | `server.py`, `__main__.py` | The stdio adapter; the only module importing `mcp` |
 
-**Phase scope change.** The eight-phase map assigned parent approval to Phase 4,
-connection validation to Phase 5 and duplicate detection to Phase 6. That split
-is not implementable in order — LLD-02 §7.7 and §10.1 both call Phase 4
-machinery from Phase 3 handlers. Phase 3 absorbs Phases 4–6 (DEV-33, approved
-by the project owner). **Phase 7 (generator, LLD-04) and Phase 8 (Local Review
-CLI, LLD-06) are the only phases remaining.**
+**Phase scope change.** The original eight-phase map assigned parent approval
+to its Phase 4, connection validation to its Phase 5 and duplicate detection to
+its Phase 6. That split is not implementable in order — LLD-02 §7.7 and §10.1
+call that machinery from Phase 3 handlers. Phase 3 absorbed all three (DEV-33,
+approved by the project owner), which retired the original map.
+
+**Remaining work is now Phase 4 and Phase 5**, defined in `docs/PHASE4_SCOPE.md`
+and `docs/PHASE5_SCOPE.md`; the authoritative old-to-new mapping is
+`docs/REMAINING_WORK.md` §1A. Phase 4 opens with remediation of the defects in
+§11 below.
 
 ---
 
@@ -70,7 +74,7 @@ CLI, LLD-06) are the only phases remaining.**
 | SRS-087 | Resolve references by UUID | Full | `tools/reference.py` over `resolve_unique_key` | `TestResolveReference` |
 | SRS-088 | Create and query review issues | Full | `tools/review_issues.py` | `TestReviewIssues` |
 | SRS-089 | Mark artifacts and issues with review states | Full | `set_review_status`; `update_review_issue` for issues | `test_assembly.py` |
-| SRS-090 | Request deterministic generation | Partial | `trigger_generation` validates `mode`, reports the generator unavailable (DEV-31) | `TestTriggerGeneration` — *the generator is Phase 7* |
+| SRS-090 | Request deterministic generation | Partial | `trigger_generation` validates `mode`, reports the generator unavailable (DEV-31) | `TestTriggerGeneration` — *the generator is Phase 4 (report) and Phase 5 (R210)* |
 | SRS-091 | Delete excluded from the tool surface | Full | No `DELETE` anywhere; no delete tool registered | `test_no_delete_tool_is_registered` |
 | SRS-093 | Destructive operations not exposed | Full | `r210_mcp` never imports `r210_db_init` | `test_the_mcp_package_never_imports_the_initializer` |
 
@@ -152,6 +156,8 @@ separately, and each has its own error naming its own reason.
 
 ## 8. Verification Summary
 
+**Pre-acceptance result (2026-08-12) — historical, not current:**
+
 ```
 590 tests passing (297 before Phase 3, 293 added)
 
@@ -173,6 +179,15 @@ separately, and each has its own error naming its own reason.
 ruff check src tests   → All checks passed
 mypy (strict) src      → Success: no issues found in 63 source files
 ```
+
+**Current result (2026-08-13), after the independent acceptance suite was added:**
+
+```
+650 collected, 639 passed, 11 failed
+```
+
+The 11 failures are the acceptance cases for defects D-01 to D-03 (§11). ruff
+and mypy remain clean.
 
 **Testing method:** development-level, by agreement with the project owner.
 These tests establish that the layer works and that its boundaries hold; they
@@ -197,12 +212,15 @@ The `-p no:cacheprovider` flag is required on this machine, which denies
 
 ## 9. What Phase 3 Deliberately Does Not Do
 
+Phase numbering follows `docs/REMAINING_WORK.md` §1A.
+
 | SRS | Requirement | Owning phase |
 |-----|-------------|--------------|
 | SRS-071 | Interface-compatibility rules | **TBD** — undefined in the requirements; SRS-125 fallback implemented instead |
-| SRS-101–SRS-104a | Deterministic generation and reporting | Phase 7 (LLD-04) |
-| SRS-036a (export half) | Unresolved references block *export* | Phase 7 |
-| SRS-118, SRS-123 | Review workflow and Local Review CLI | Phase 8 (LLD-06) |
+| SRS-104, SRS-104a | Review report and tree evaluation | **Phase 4** (LLD-04) |
+| SRS-101, SRS-103 | R210 rendering and its determinism | **Phase 5** (LLD-04 §6) |
+| SRS-036a (export half) | Unresolved references block *export* | **Phase 4** |
+| SRS-118, SRS-123 | Review workflow and Local Review CLI | **Phase 4** (LLD-06) |
 | SRS-015 | External data transfer authorization | **Blocking stakeholder decision, unchanged** |
 
 `R210McpServer.run()` is unverified. The `mcp` SDK is not installed in this
@@ -239,13 +257,14 @@ Areas most worth independent scrutiny, in the order I would attack them:
 ## 11. Defects Found in Acceptance Testing
 
 Independent acceptance testing on 2026-08-13 ran 60 cases against the Phase 3
-surface; 49 passed and 11 failed, resolving to three behavioural defects plus
-one architectural finding. All four were verified against LLD-02 and are real.
+surface; 49 passed and 11 failed, resolving to three behavioural defects. A
+fourth item, D-04, is an architectural conformance issue found by inspection —
+it produced no test failure. All four were verified against LLD-02 and are real.
 
 Each is a case where a descriptor was written from a tool's **parameter table**
 without implementing the **algorithm** specified beneath it.
 
-### D-01 — `create_port_connection` is not atomic *(Critical)*
+### D-01 — connection creation is neither atomic nor validated *(Critical)*
 
 **SRS:** SRS-069, SRS-070, SRS-072, SRS-084, SRS-122. **Failing cases:** 7.
 
@@ -289,7 +308,7 @@ catches it.
 
 **Files:** `src/r210_mcp/tools/review_issues.py`.
 
-### D-04 — `get_stats` executes SQL outside the DAL *(Architectural)*
+### D-04 — `get_stats` executes SQL outside the DAL *(Architectural conformance)*
 
 `tools/registry.py` issues `SELECT COUNT(*)` and a `GROUP BY` directly against
 the connection, contrary to the rule that all SQL belongs in the DAL. The table
@@ -303,7 +322,8 @@ were built around.
 
 Fixes are scheduled as the first deliverable of Phase 4
 (`docs/PHASE4_SCOPE.md` §3.0). Expected result on completion: 60 of 60
-acceptance cases passing, with the four rows above restored to **Full**.
+acceptance cases passing and 650 of 650 in the full suite, with the four
+requirement rows above restored to **Full**.
 
 ---
 
@@ -312,5 +332,5 @@ acceptance cases passing, with the four rows above restored to **Full**.
 | Version | Date       | Changes |
 |---------|------------|---------|
 | 1.0     | 2026-08-12 | Initial record of Phase 3 implementation. |
-| 1.2     | 2026-08-13 | Recorded four defects found in independent acceptance testing (§11) and downgraded SRS-069/072, SRS-122, SRS-036a and SRS-074 from Full to Partial. |
 | 1.1     | 2026-08-12 | Tightened SRS-015a(c): a create or update now returns only `unique_key`, warnings and demoted keys to an extraction-mode caller, matching LLD-02 §11.2 (DEV-38). Updated counts to 590. Source document is now LLD-02 v1.5, into which DEV-25 through DEV-38 are incorporated. |
+| 1.2     | 2026-08-13 | Recorded three defects and one architectural conformance issue found in independent acceptance testing (§11); downgraded SRS-069/072, SRS-122, SRS-036a and SRS-074 from Full to Partial; added the current 650/639/11 result and labelled the 590 figure historical; replaced the retired eight-phase numbering with a pointer to `REMAINING_WORK.md` §1A. |

@@ -1,4 +1,15 @@
-"""End-to-end acceptance tests for the Phase 3 MCP tool surface."""
+"""End-to-end acceptance tests for the Phase 3 MCP tool surface.
+
+Independent acceptance suite, written against the specification rather than the
+implementation. The eleven currently-failing cases are defects D-01 to D-03,
+recorded in `docs/PHASE3_IMPLEMENTED_REQUIREMENTS.md` §11 and scheduled for
+remediation in Phase 4 (`docs/PHASE4_SCOPE.md` §3.0).
+
+Verifies: SRS-036a, SRS-069, SRS-070, SRS-072, SRS-074, SRS-084, SRS-122.
+
+See: LLD-02 §7.2 (type definition update), §7.5 (port connection tools),
+§7.6 (review issue tools)
+"""
 
 from typing import Any
 from uuid import uuid4

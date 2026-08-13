@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 pip install -e ".[dev]"                      # editable install (not required for tests)
 
-python -m pytest tests/ -q                   # full suite
+python -m pytest tests/ -q                   # full suite: 650 tests, 11 expected failures (D-01-D-03)
 python -m pytest tests/test_r210_mcp/test_dal.py -q
 python -m pytest tests/test_r210_mcp/test_dal.py::TestRoundTrip::test_every_table_round_trips -q
 
@@ -26,7 +26,11 @@ to silence the resulting `PytestCacheWarning` — it does not affect results.
 `mypy src` is clean; `mypy tests` reports ~36 pre-existing errors in the Phase 1 test files. The
 recorded gate is sources only.
 
-`r210-review` (the console script in `pyproject.toml`) is a stub that exits 1 — see DEV-O-03.
+**The suite is not green, and that is the current expected state.** 639 pass, 11 fail. All eleven
+are `tests/test_r210_mcp/test_phase3_acceptance.py` cases for defects D-01–D-03. Do not "fix" them
+by changing the tests — they are written against LLD-02 and are correct. `ruff` and `mypy` are clean.
+
+`r210-review` (the console script in `pyproject.toml`) resolves but exits 1; the CLI is Phase 4.
 
 ## This is a document-driven project
 
@@ -47,8 +51,8 @@ and test docstrings cite the `SRS-nnn` they verify. Keep both when adding code.
 ### Deviations must be written down
 
 `docs/DEVIATIONS_FROM_REQUIREMENTS.md` records every point where the code differs from or fills a
-gap in the documents, as numbered entries (`DEV-01`…`DEV-24`, plus `DEV-O-nn` open items awaiting
-stakeholder decision). Each entry states what the documents say, what the code does, and why,
+gap in the documents, as numbered entries (`DEV-01`…`DEV-38`, plus `DEV-O-nn` open items awaiting
+stakeholder decision; Phase 3's are closed against LLD-02 v1.5). Each entry states what the documents say, what the code does, and why,
 classified as Gap-fill / Correction / Refinement / Addition / Open item. Adding a deviation without
 an entry is the failure mode this document exists to prevent.
 
@@ -57,18 +61,23 @@ implementation and to the tests that verify them.
 
 ## Implementation state
 
-`r210_mcp/` is complete. `r210_generator/` and `r210_review_cli/` are still docstring-only stubs —
-a file's docstring tells you what belongs there. `r210-review` therefore exits 1 (DEV-O-03).
+`r210_mcp/` is implemented but carries three known acceptance defects plus one architectural
+conformance issue (D-01–D-04, `docs/PHASE3_IMPLEMENTED_REQUIREMENTS.md` §11), scheduled for
+remediation at the start of Phase 4.
+
+`r210_generator/` and `r210_review_cli/` are still docstring-only stubs — a file's docstring tells
+you what belongs there. `r210-review` therefore exits 1.
 
 - **Phase 1** — `r210_db_init/` (migrations, initializer, CLI, dev_reset) and `r210_mcp/db/models.py`
 - **Phase 2** — `r210_mcp/errors.py`, `db/connection.py`, `db/dal.py`
 - **Phase 3** — `validation/`, `duplicate_detection.py`, `projection.py`, `tools/`, `server.py`
 
-**Phase 3 absorbed Phases 4–6** (DEV-33): the documented split put parent-approval blocking in
-Phase 4 and duplicate detection in Phase 6, but LLD-02 §7.7 and §10.1 call that machinery from
-Phase 3 handlers, so it could not ship in that order. Only **Phase 7 (generator, LLD-04)** and
-**Phase 8 (review CLI, LLD-06)** remain. `REPOSITORY_REVIEW_REPORT.md` §7 uses an older five-phase
-map; ignore its numbering.
+**Phase numbering is delivery order, and `docs/REMAINING_WORK.md` §1A is authoritative.** Phase 3
+absorbed what the original eight-phase map called Phases 4–6 (DEV-33), which retired that map.
+Remaining work is **Phase 4** (`docs/PHASE4_SCOPE.md` — Phase 3 remediation, review CLI, generator
+core, review report, Gemini skill) and **Phase 5** (`docs/PHASE5_SCOPE.md` — R210 rendering, blocked
+on SRS-019(c) and SRS-064). Older documents saying "Phase 7/8" mean these; `REPOSITORY_REVIEW_REPORT.md`
+§7 uses a third, five-phase map — ignore its numbering.
 
 `R210McpServer.run()` has never been executed — the `mcp` SDK is not installed here. It is the one
 unverified path; everything else is reachable through `handle_tool`.
