@@ -269,106 +269,136 @@ class TestPortPrototypeFunction:
 
 
 class TestPortConnection:
-    def test_creates_and_records_the_compatibility_issue(self, initialized_db: str) -> None:
+    """A connection is created whole (LLD-02 §7.5) — never empty then filled."""
+
+    def _complete(self, ctx: ToolContext, suffix: str = "") -> tuple[str, str, str]:
+        provider = _prototype(ctx, f"P{suffix}", "provider")
+        requester = _prototype(ctx, f"R{suffix}", "requester")
+        connection = _key(
+            handle_create_port_connection(
+                ctx,
+                {
+                    "description": "link",
+                    "members": [
+                        {"port_prototype_key": provider, "position": 1},
+                        {"port_prototype_key": requester, "position": 2},
+                    ],
+                },
+            )
+        )
+        return connection, provider, requester
+
+    def test_creates_with_members_and_records_the_compatibility_issue(
+        self, initialized_db: str
+    ) -> None:
         """SRS-125 — compatibility is unverified, so an issue is created."""
         ctx = build_context(initialized_db, "review")
-        key = _key(handle_create_port_connection(ctx, {"description": "link"}))
+        connection, _provider, _requester = self._complete(ctx)
         with ctx.db.read_only() as conn:
-            issues = ctx.dal.query_review_issues(conn, {"artifact_unique_key": key})
+            issues = ctx.dal.query_review_issues(conn, {"artifact_unique_key": connection})
+            record = ctx.dal.get_port_connection_by_key(conn, connection)
+            members = ctx.dal.get_children(
+                conn, "PortConnectionMembers", "port_connection_id", record.id
+            )
         assert len(issues) == 1
         assert issues[0].issue_type == "incomplete"
+        assert [member.position for member in members] == [1, 2]
 
-    def test_adds_members(self, initialized_db: str) -> None:
+    def test_rejects_a_connection_without_members(self, initialized_db: str) -> None:
+        """SRS-072 — an empty connection is invalid and must not persist."""
         ctx = build_context(initialized_db, "review")
-        connection = _key(handle_create_port_connection(ctx, {}))
-        provider = _prototype(ctx, "P", "provider")
+        with pytest.raises(McpValidationError) as caught:
+            handle_create_port_connection(ctx, {"members": []})
+        assert caught.value.error.field == "members"
+        with ctx.db.read_only() as conn:
+            assert ctx.dal.query_port_connections(conn) == []
+
+    def test_rejects_a_connection_without_a_requester(self, initialized_db: str) -> None:
+        """SRS-072 — at least one provider and one requester."""
+        ctx = build_context(initialized_db, "review")
+        provider = _prototype(ctx, "OnlyP", "provider")
+        with pytest.raises(McpValidationError) as caught:
+            handle_create_port_connection(
+                ctx, {"members": [{"port_prototype_key": provider, "position": 1}]}
+            )
+        assert "requester" in caught.value.error.reason
+        with ctx.db.read_only() as conn:
+            assert ctx.dal.query_port_connections(conn) == []
+
+    def test_adds_a_further_member_to_a_valid_connection(self, initialized_db: str) -> None:
+        """SRS-122 — a member that keeps the connection valid is accepted."""
+        ctx = build_context(initialized_db, "review")
+        connection, _provider, _requester = self._complete(ctx)
+        second_requester = _prototype(ctx, "R2", "requester")
         response = handle_create_port_connection_member(
             ctx,
-            {"port_connection_key": connection, "port_prototype_key": provider, "position": 1},
+            {
+                "port_connection_key": connection,
+                "port_prototype_key": second_requester,
+                "position": 3,
+            },
         )
-        assert response["result"]["position"] == 1
+        assert response["result"]["position"] == 3
 
     def test_update_revalidates_the_whole_connection(self, initialized_db: str) -> None:
         """SRS-122 — a member change revalidates the connection transactionally."""
         ctx = build_context(initialized_db, "review")
-        connection = _key(handle_create_port_connection(ctx, {}))
-        provider = _prototype(ctx, "P", "provider")
-        requester = _prototype(ctx, "R", "requester")
-        handle_create_port_connection_member(
-            ctx,
-            {"port_connection_key": connection, "port_prototype_key": provider, "position": 1},
-        )
-        member = _key(
-            handle_create_port_connection_member(
-                ctx,
-                {
-                    "port_connection_key": connection,
-                    "port_prototype_key": requester,
-                    "position": 2,
-                },
-            )
-        )
-
-        # Repointing the requester at a second provider leaves no requester:
-        # the update must be rejected and rolled back.
+        connection, _provider, requester = self._complete(ctx)
         second_provider = _prototype(ctx, "P2", "provider")
+
+        # Repointing the only requester at a second provider leaves no
+        # requester: the update must be rejected and rolled back.
+        with ctx.db.read_only() as conn:
+            member = ctx.dal.get_children(
+                conn,
+                "PortConnectionMembers",
+                "port_connection_id",
+                ctx.dal.get_port_connection_by_key(conn, connection).id,
+            )[1]
         with pytest.raises(McpValidationError) as caught:
             handle_update_port_connection_member(
-                ctx, {"unique_key": member, "port_prototype_key": second_provider}
+                ctx, {"unique_key": member.unique_key, "port_prototype_key": second_provider}
             )
         assert "requester" in caught.value.error.reason
 
         with ctx.db.read_only() as conn:
-            unchanged = ctx.dal.get_port_connection_member_by_key(conn, member)
+            unchanged = ctx.dal.get_port_connection_member_by_key(conn, member.unique_key)
             target = ctx.dal.get_port_prototype_by_key(conn, requester)
         assert unchanged.port_prototype_id == target.id
 
     def test_valid_member_update_is_applied(self, initialized_db: str) -> None:
         ctx = build_context(initialized_db, "review")
-        connection = _key(handle_create_port_connection(ctx, {}))
-        provider = _prototype(ctx, "P", "provider")
-        requester = _prototype(ctx, "R", "requester")
+        connection, _provider, _requester = self._complete(ctx)
         other = _prototype(ctx, "R2", "requester")
-        handle_create_port_connection_member(
-            ctx,
-            {"port_connection_key": connection, "port_prototype_key": provider, "position": 1},
-        )
-        member = _key(
-            handle_create_port_connection_member(
-                ctx,
-                {
-                    "port_connection_key": connection,
-                    "port_prototype_key": requester,
-                    "position": 2,
-                },
-            )
-        )
+        with ctx.db.read_only() as conn:
+            member = ctx.dal.get_children(
+                conn,
+                "PortConnectionMembers",
+                "port_connection_id",
+                ctx.dal.get_port_connection_by_key(conn, connection).id,
+            )[1]
         handle_update_port_connection_member(
-            ctx, {"unique_key": member, "port_prototype_key": other}
+            ctx, {"unique_key": member.unique_key, "port_prototype_key": other}
         )
         with ctx.db.read_only() as conn:
-            updated = ctx.dal.get_port_connection_member_by_key(conn, member)
+            updated = ctx.dal.get_port_connection_member_by_key(conn, member.unique_key)
             target = ctx.dal.get_port_prototype_by_key(conn, other)
         assert updated.port_prototype_id == target.id
 
     def test_member_update_rejects_status(self, initialized_db: str) -> None:
         """SRS-091a."""
         ctx = build_context(initialized_db, "review")
-        connection = _key(handle_create_port_connection(ctx, {}))
-        provider = _prototype(ctx, "P", "provider")
-        member = _key(
-            handle_create_port_connection_member(
-                ctx,
-                {
-                    "port_connection_key": connection,
-                    "port_prototype_key": provider,
-                    "position": 1,
-                },
-            )
-        )
+        connection, _provider, _requester = self._complete(ctx)
+        with ctx.db.read_only() as conn:
+            member = ctx.dal.get_children(
+                conn,
+                "PortConnectionMembers",
+                "port_connection_id",
+                ctx.dal.get_port_connection_by_key(conn, connection).id,
+            )[0]
         with pytest.raises(McpValidationError) as caught:
             handle_update_port_connection_member(
-                ctx, {"unique_key": member, "status": "approved"}
+                ctx, {"unique_key": member.unique_key, "status": "approved"}
             )
         assert caught.value.error.field == "status"
 

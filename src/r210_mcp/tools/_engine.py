@@ -275,17 +275,55 @@ def create_unresolved_issue(
     return issue_key
 
 
-def _pending_unresolved_issues(
+def _reference_issues(
     conn: sqlite3.Connection, dal: DataAccessLayer, artifact_key: str
 ) -> list[Any]:
-    return [
-        issue
-        for issue in dal.query_review_issues(
-            conn,
-            {"artifact_unique_key": artifact_key, "issue_type": "unresolved_reference"},
-        )
-        if issue.status == "pending"
-    ]
+    """Every `unresolved_reference` issue for one artifact, whatever its status."""
+    return dal.query_review_issues(
+        conn, {"artifact_unique_key": artifact_key, "issue_type": "unresolved_reference"}
+    )
+
+
+def reopen_or_create_reference_issue(
+    conn: sqlite3.Connection,
+    dal: DataAccessLayer,
+    table: str,
+    artifact_key: str,
+    column: str,
+    source_requirement_id: int | None,
+) -> None:
+    """Record that a reference is unresolved, reusing the existing issue.
+
+    A reference that is resolved and then cleared again must **reopen** its
+    original issue rather than accumulate a second one: SRS-036a describes one
+    tracking issue per unresolved reference, not one per edit.
+    """
+    existing = _reference_issues(conn, dal, artifact_key)
+    if not existing:
+        create_unresolved_issue(conn, dal, table, artifact_key, column, source_requirement_id)
+        return
+    for issue in existing:
+        if issue.status != "pending":
+            dal.update_record(
+                conn,
+                "ReviewIssues",
+                issue.id,
+                {"status": "pending", "resolution": None},
+            )
+
+
+def resolve_reference_issues(
+    conn: sqlite3.Connection, dal: DataAccessLayer, artifact_key: str
+) -> None:
+    """Close the tracking issues once the reference resolves (SRS-036a)."""
+    for issue in _reference_issues(conn, dal, artifact_key):
+        if issue.status == "pending":
+            dal.update_record(
+                conn,
+                "ReviewIssues",
+                issue.id,
+                {"status": "resolved", "resolution": "Reference resolved by update."},
+            )
 
 
 def sync_unresolved_issues(
@@ -307,23 +345,16 @@ def sync_unresolved_issues(
             continue
         artifact_key = str(record.unique_key)
         if changed[spec.column] is None:
-            if not _pending_unresolved_issues(conn, dal, artifact_key):
-                create_unresolved_issue(
-                    conn,
-                    dal,
-                    table,
-                    artifact_key,
-                    spec.column,
-                    getattr(record, "source_requirement_id", None),
-                )
+            reopen_or_create_reference_issue(
+                conn,
+                dal,
+                table,
+                artifact_key,
+                spec.column,
+                getattr(record, "source_requirement_id", None),
+            )
         else:
-            for issue in _pending_unresolved_issues(conn, dal, artifact_key):
-                dal.update_record(
-                    conn,
-                    "ReviewIssues",
-                    issue.id,
-                    {"status": "resolved", "resolution": "Reference resolved by update."},
-                )
+            resolve_reference_issues(conn, dal, artifact_key)
 
 
 def demote_parent_on_child_creation(

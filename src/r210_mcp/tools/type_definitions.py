@@ -15,7 +15,12 @@ from uuid import uuid4
 from ..db.models import ARTIFACT_STATUSES
 from ..duplicate_detection import check_for_duplicates, duplicate_warning
 from ..errors import McpResult, McpValidationError
-from ..validation.common import validate_not_empty, validate_position, validate_positive_int
+from ..validation.common import (
+    validate_not_empty,
+    validate_position,
+    validate_positive_int,
+    validate_uuid_format,
+)
 from ..validation.type_definitions import (
     KINDS,
     validate_kind_value,
@@ -29,10 +34,16 @@ from ._engine import (
     RefSpec,
     UpdateSpec,
     choice_of,
+    collect_fields,
     create_unresolved_issue,
+    demote_if_approved,
     initial_status,
     record_to_dict,
+    reject_status_argument,
     reject_unknown_arguments,
+    reopen_or_create_reference_issue,
+    resolve_reference_issues,
+    resolve_refs,
     run_create,
     run_query,
     run_update,
@@ -299,9 +310,114 @@ def handle_create_type_definition(ctx: ToolContext, arguments: dict[str, Any]) -
     return McpResult(unique_key=unique_key, data=data, warnings=warnings).to_dict()
 
 
+_UPDATE_TOOL = "update_type_definition"
+_UPDATE_ARGUMENTS = frozenset(
+    {"unique_key", "name", "description", "source_requirement_key", "subtype"}
+)
+
+
 def handle_update_type_definition(ctx: ToolContext, arguments: dict[str, Any]) -> dict[str, Any]:
-    """Update a type definition; `kind` and `status` are rejected."""
-    return run_update(ctx, _UPDATE, arguments)
+    """Update a type definition; `kind` and `status` are rejected.
+
+    For an array, `subtype.element_type_key` is updatable (LLD-02 §7.2 step 3).
+    That is the only way an unresolved array reference can ever be resolved:
+    the detail row lives on `ArrayTypeDefinitions`, which is not independently
+    reviewable (SRS-035a) and so has no update tool of its own.
+    """
+    if "subtype" not in arguments:
+        return run_update(ctx, _UPDATE, arguments)
+
+    reject_status_argument(_UPDATE_TOOL, arguments)
+    key = arguments.get("unique_key")
+    validate_uuid_format(key, "unique_key", operation=_UPDATE_TOOL)
+    if "kind" in arguments:
+        raise McpValidationError.of(
+            _UPDATE_TOOL,
+            "kind cannot be changed after creation (SRS-120)",
+            field="kind",
+            affected_key=str(key),
+        )
+    reject_unknown_arguments(_UPDATE_TOOL, arguments, _UPDATE_ARGUMENTS)
+
+    subtype = arguments["subtype"]
+    if not isinstance(subtype, dict) or "element_type_key" not in subtype:
+        raise McpValidationError.of(
+            _UPDATE_TOOL,
+            "subtype must be an object containing element_type_key; it is the only "
+            "updatable subtype field (LLD-02 §7.2)",
+            field="subtype",
+            affected_key=str(key),
+        )
+
+    values = collect_fields(_UPDATE_TOOL, _UPDATE.fields, arguments, require=False)
+
+    with ctx.db.transaction() as conn:
+        record = ctx.dal.get_type_definition_by_key(conn, str(key))
+        if record is None:
+            raise McpValidationError.of(
+                _UPDATE_TOOL,
+                f"no TypeDefinitions record with unique_key {key!r}",
+                field="unique_key",
+                affected_key=str(key),
+            )
+        if record.kind != "array":
+            raise McpValidationError.of(
+                _UPDATE_TOOL,
+                f"subtype.element_type_key applies to kind 'array'; this record is "
+                f"{record.kind!r}",
+                field="subtype",
+                affected_key=str(key),
+            )
+        detail = ctx.dal.get_array_type_definition_by_parent(conn, record.id)
+        if detail is None:
+            raise McpValidationError.of(
+                _UPDATE_TOOL,
+                "array record has no ArrayTypeDefinitions detail row (SRS-038a)",
+                field="subtype",
+                affected_key=str(key),
+            )
+
+        element_type_id = _resolve_element_type(
+            ctx, conn, subtype.get("element_type_key"), "subtype.element_type_key"
+        )
+        ctx.dal.update_record(
+            conn, "ArrayTypeDefinitions", detail.id, {"element_type_id": element_type_id}
+        )
+
+        # The subtype row is not an independently reviewable artifact type
+        # (SRS-035a, SRS-074), so its issue is tracked against the parent.
+        if element_type_id is None:
+            reopen_or_create_reference_issue(
+                conn,
+                ctx.dal,
+                "TypeDefinitions",
+                str(key),
+                "element_type_id",
+                record.source_requirement_id,
+            )
+        else:
+            resolve_reference_issues(conn, ctx.dal, str(key))
+
+        ref_values, _unresolved, _parent = resolve_refs(
+            conn, ctx.dal, _UPDATE_TOOL, _UPDATE.refs, arguments, fill_absent=False
+        )
+        changed = {**values, **ref_values}
+        if changed:
+            ctx.dal.update_record(conn, "TypeDefinitions", record.id, changed)
+
+        # A subtype change is a content change on the parent (LLD-02 §10.1),
+        # so it demotes an approved parent even when no parent column moved.
+        demoted = demote_if_approved(
+            conn, ctx.dal, "TypeDefinitions", record.id, {**changed, "subtype": True}
+        )
+        updated = ctx.dal.get_record_by_id(conn, "TypeDefinitions", record.id)
+
+    data = record_to_dict(updated)
+    data.pop("id", None)
+    data.pop("unique_key", None)
+    if demoted:
+        data["demoted"] = demoted
+    return McpResult(unique_key=str(key), data=data).to_dict()
 
 
 def handle_query_type_definitions(ctx: ToolContext, arguments: dict[str, Any]) -> dict[str, Any]:

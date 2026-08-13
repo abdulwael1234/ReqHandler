@@ -68,6 +68,9 @@ def handle_create_review_issue(ctx: ToolContext, arguments: dict[str, Any]) -> d
     validate_not_empty(arguments.get("message"), "message", operation=_CREATE_TOOL)
     artifact_type = arguments.get("artifact_type")
     validate_artifact_type(artifact_type, "artifact_type", operation=_CREATE_TOOL)
+    # SRS-074 pairing is bidirectional (LLD-02 §7.6 step 2): both set, or
+    # neither. The schema CHECK only guards one direction, so a type without a
+    # key would otherwise produce an issue pointing at nothing.
     artifact_key = arguments.get("artifact_unique_key")
     if artifact_key is not None and artifact_type is None:
         raise McpValidationError.of(
@@ -75,6 +78,12 @@ def handle_create_review_issue(ctx: ToolContext, arguments: dict[str, Any]) -> d
             "artifact_type is required when artifact_unique_key is given (SRS-074)",
             field="artifact_type",
             affected_key=str(artifact_key),
+        )
+    if artifact_type is not None and artifact_key is None:
+        raise McpValidationError.of(
+            _CREATE_TOOL,
+            "artifact_unique_key is required when artifact_type is given (SRS-074)",
+            field="artifact_unique_key",
         )
 
     unique_key = str(uuid4())

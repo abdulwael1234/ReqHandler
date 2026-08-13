@@ -57,7 +57,7 @@ The seam is therefore precise and lands on a package boundary:
 
 ## 3. Deliverables
 
-### 3.0 Phase 3 defect fixes *(first, before anything else)*
+### 3.0 Phase 3 defect fixes — **CLOSED 2026-08-13, before Phase 4 begins**
 
 Independent acceptance testing on 2026-08-13 found three behavioural defects
 in the Phase 3 surface, plus one architectural conformance issue found by
@@ -83,9 +83,11 @@ refused.
 D-04 is small and worth doing while the surrounding code is open: it needs a
 DAL method for row and status counts, after which `registry.py` holds no SQL.
 
-**Done when:** the acceptance suite reports 60 of 60 passing, the full suite
-reports 650 of 650, and the four requirement rows in
-`PHASE3_IMPLEMENTED_REQUIREMENTS.md` §§3–5 return from Partial to Full.
+**Done.** All four were fixed on the Phase 3 branch rather than deferred, so
+`master` never carried the critical connection defect. Acceptance is 60 of 60,
+the full suite is 652 passing, and the four requirement rows are back to Full.
+This section is retained as the record of what was fixed; **Phase 4 starts at
+§3.1**.
 
 ### 3.1 Local Review CLI (LLD-06, SRS-123)
 
@@ -251,7 +253,7 @@ design spec.
 
 ## 7. Definition of Done
 
-1. All five deliverables in §3 implemented, §3.0 first.
+1. All deliverables in §3.1–§3.5 implemented (§3.0 is already closed).
 2. `python -m pytest tests/ -q -p no:cacheprovider` passes.
 3. `ruff check src tests` and `mypy src` (strict) clean.
 4. `r210-review` runs end to end against a synthetic database: create records
@@ -274,8 +276,7 @@ precedent and should be written adversarially: the CLI's network isolation
 
 ## 8. Suggested Order
 
-1. **Phase 3 defect fixes (§3.0)** — D-01 and D-02 are prerequisites for the
-   rest of this phase; D-03 and D-04 are small and adjacent.
+1. ~~Phase 3 defect fixes (§3.0)~~ — done 2026-08-13, before this phase starts.
 2. **Review CLI** — unblocked, and it makes everything downstream inspectable
    by a human instead of by tool calls.
 3. **Loader and validator** — the generator's database-facing half; the tree
@@ -306,3 +307,4 @@ precedent and should be written adversarially: the CLI's network isolation
 |---------|------------|---------|
 | 1.0     | 2026-08-13 | Initial scope, agreed after the Phase 3 hand-off. |
 | 1.1     | 2026-08-13 | Review fixes: clarified the delivery-order numbering against the retired eight-phase map; marked SRS-101 Partial for this phase, since R210-output determinism belongs to Phase 5; widened D-01 to cover both creation paths; reclassified D-04 as an architectural conformance issue rather than a defect; stated the Phase 5 entry criteria as more than two TBDs. |
+| 1.2     | 2026-08-13 | §3.0 closed: D-01–D-04 fixed on the Phase 3 branch before merge. |

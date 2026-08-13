@@ -13,7 +13,7 @@ import sqlite3
 from collections.abc import Callable
 from typing import Any
 
-from ..db.models import PARENT_CHILD_MAP, STRUCTURAL_SUBTYPE_TABLES, TABLE_RECORD_MAP
+from ..db.models import PARENT_CHILD_MAP, TABLE_RECORD_MAP
 from ..errors import McpError, McpValidationError
 from ..projection import project_response
 from ._engine import record_to_dict
@@ -180,12 +180,8 @@ def get_stats(ctx: ToolContext) -> dict[str, Any]:
     stats: dict[str, Any] = {}
     with ctx.db.read_only() as conn:
         for table in tables:
-            total = conn.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
-            by_status: dict[str, int] = {}
-            if table not in STRUCTURAL_SUBTYPE_TABLES:
-                rows = conn.execute(
-                    f'SELECT "status", COUNT(*) FROM "{table}" GROUP BY "status"'
-                ).fetchall()
-                by_status = {str(row[0]): int(row[1]) for row in rows}
-            stats[table] = {"total": int(total), "by_status": by_status}
+            stats[table] = {
+                "total": ctx.dal.count_rows(conn, table),
+                "by_status": ctx.dal.count_by_status(conn, table),
+            }
     return stats

@@ -982,3 +982,24 @@ class DataAccessLayer:
         """Update a table named at runtime, for the descriptor engine."""
         self._check_table(table)
         self._update(conn, TABLE_RECORD_MAP[table], record_id, values)
+
+    def count_rows(self, conn: sqlite3.Connection, table: str) -> int:
+        """Total rows in one table (LLD-02 §9.3 statistics)."""
+        self._check_table(table)
+        row = conn.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()
+        return int(row[0])
+
+    def count_by_status(self, conn: sqlite3.Connection, table: str) -> dict[str, int]:
+        """Row counts grouped by review state (LLD-02 §9.3 statistics).
+
+        Returns an empty mapping for a table with no `status` column rather
+        than raising: a caller tallying every table should not have to know
+        which ones are structural subtypes (SRS-035a).
+        """
+        self._check_table(table)
+        if "status" not in TABLE_COLUMNS[table]:
+            return {}
+        rows = conn.execute(
+            f'SELECT "status", COUNT(*) FROM "{table}" GROUP BY "status"'
+        ).fetchall()
+        return {str(row[0]): int(row[1]) for row in rows}

@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 pip install -e ".[dev]"                      # editable install (not required for tests)
 
-python -m pytest tests/ -q                   # full suite: 650 tests, 11 expected failures (D-01-D-03)
+python -m pytest tests/ -q                   # full suite: 652 tests, all passing
 python -m pytest tests/test_r210_mcp/test_dal.py -q
 python -m pytest tests/test_r210_mcp/test_dal.py::TestRoundTrip::test_every_table_round_trips -q
 
@@ -26,9 +26,10 @@ to silence the resulting `PytestCacheWarning` — it does not affect results.
 `mypy src` is clean; `mypy tests` reports ~36 pre-existing errors in the Phase 1 test files. The
 recorded gate is sources only.
 
-**The suite is not green, and that is the current expected state.** 639 pass, 11 fail. All eleven
-are `tests/test_r210_mcp/test_phase3_acceptance.py` cases for defects D-01–D-03. Do not "fix" them
-by changing the tests — they are written against LLD-02 and are correct. `ruff` and `mypy` are clean.
+`tests/test_r210_mcp/test_phase3_acceptance.py` is the independent acceptance suite, written against
+LLD-02 rather than against the implementation. It caught four defects the development tests missed,
+including five development tests that had encoded a defect instead of catching it. If it fails, fix
+the code — not the test.
 
 `r210-review` (the console script in `pyproject.toml`) resolves but exits 1; the CLI is Phase 4.
 
@@ -61,9 +62,8 @@ implementation and to the tests that verify them.
 
 ## Implementation state
 
-`r210_mcp/` is implemented but carries three known acceptance defects plus one architectural
-conformance issue (D-01–D-04, `docs/PHASE3_IMPLEMENTED_REQUIREMENTS.md` §11), scheduled for
-remediation at the start of Phase 4.
+`r210_mcp/` is complete. The 2026-08-13 acceptance defects (D-01–D-04,
+`docs/PHASE3_IMPLEMENTED_REQUIREMENTS.md` §11) are fixed.
 
 `r210_generator/` and `r210_review_cli/` are still docstring-only stubs — a file's docstring tells
 you what belongs there. `r210-review` therefore exits 1.

@@ -16,7 +16,12 @@ from ..errors import McpValidationError
 
 
 def validate_connection_complete(
-    conn: sqlite3.Connection, dal: DataAccessLayer, connection_id: int, *, operation: str
+    conn: sqlite3.Connection,
+    dal: DataAccessLayer,
+    connection_id: int,
+    *,
+    operation: str,
+    field: str = "port_prototype_key",
 ) -> None:
     """Re-check every rule over a whole connection (SRS-122).
 
@@ -24,6 +29,10 @@ def validate_connection_complete(
     LLD-02 §6.5 returns a list of errors, but a partially-valid connection must
     not be committed, and `transaction()` rolls back on the exception
     (LLD-02 §10.3).
+
+    `field` names the argument the caller actually supplied: `create_port_connection`
+    takes a `members` array, while the member tools take `port_prototype_key`.
+    SRS-109 requires the error to name the field the caller can act on.
     """
     connection = dal.get_record_by_id(conn, "PortConnections", connection_id)
     affected_key = None if connection is None else str(connection.unique_key)
@@ -34,7 +43,7 @@ def validate_connection_complete(
             operation,
             "connection has no members; at least one provider and one requester "
             "are required (SRS-072)",
-            field="port_connection_key",
+            field=field,
             affected_key=affected_key,
         )
 
@@ -43,7 +52,7 @@ def validate_connection_complete(
         raise McpValidationError.of(
             operation,
             "connection contains a duplicate port_prototype reference (SRS-070)",
-            field="port_prototype_key",
+            field=field,
             affected_key=affected_key,
         )
 
@@ -55,7 +64,7 @@ def validate_connection_complete(
                 operation,
                 f"member references PortPrototypes id {prototype_id}, which does not exist "
                 "(SRS-069)",
-                field="port_prototype_key",
+                field=field,
                 affected_key=affected_key,
             )
         directions.append(str(prototype.direction))
@@ -65,7 +74,7 @@ def validate_connection_complete(
             raise McpValidationError.of(
                 operation,
                 f"connection requires at least one {required} member (SRS-072)",
-                field="port_prototype_key",
+                field=field,
                 affected_key=affected_key,
             )
 

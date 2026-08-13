@@ -50,7 +50,7 @@ documents written before 2026-08-13 mean the rows below.
 | 7 — Deterministic generator | **split** — core and review report to **Phase 4**; R210 rendering to **Phase 5** | `PHASE4_SCOPE.md`, `PHASE5_SCOPE.md` |
 | 8 — Local review CLI | **Phase 4** | `PHASE4_SCOPE.md` |
 | *(not in the original map)* Gemini CLI Skill, LLD-03 | **Phase 4** | `PHASE4_SCOPE.md` |
-| *(new)* Phase 3 remediation, D-01–D-04 | **Phase 4** §3.0 | `PHASE4_SCOPE.md` |
+| *(new)* Phase 3 remediation, D-01–D-04 | **closed 2026-08-13** on the Phase 3 branch | `PHASE3_IMPLEMENTED_REQUIREMENTS.md` §11 |
 
 Phase numbers now follow delivery order and nothing else. A phase that changes
 scope is recorded as a deviation, as DEV-33 was, rather than renumbered.
@@ -67,17 +67,14 @@ they will contain.
 |-----------|-----|-------|
 | Database Schema | LLD-01 | **Complete** (Phase 1) |
 | Database Initializer | LLD-05 | **Complete** (Phase 1) |
-| MCP Server | LLD-02 | **Implemented with known acceptance defects** (Phases 2–3) — D-01–D-04, see §4.3; `run()` unverified, see §4.1 |
+| MCP Server | LLD-02 | **Complete** (Phases 2–3) — acceptance defects D-01–D-04 fixed 2026-08-13; `run()` unverified, see §4.1 |
 | Gemini CLI Skill | LLD-03 | **Stub** — see §3.1 |
 | Deterministic Generator | LLD-04 | **Stub** — see §3.2 |
 | Local Review CLI | LLD-06 | **Stub** — see §3.3 |
 
-**Current result (2026-08-13):** 650 tests collected, 639 passed, 11 failed.
-The 11 failures are the acceptance cases for defects D-01–D-03 (§4.3).
-`ruff check src tests` and `mypy src` (strict) are clean.
-
-The 590-passing figure quoted in the Phase 3 record is the *pre-acceptance*
-result, before the independent suite was added. It is historical, not current.
+**Current result (2026-08-13):** 652 tests passing, including the 60-case
+independent acceptance suite. `ruff check src tests` and `mypy src` (strict)
+are clean.
 
 ---
 
@@ -207,14 +204,13 @@ Ranked starting points are recorded in
 `docs/PHASE2_IMPLEMENTED_REQUIREMENTS.md` §9 and
 `docs/PHASE3_IMPLEMENTED_REQUIREMENTS.md` §10.
 
-### 4.3 Phase 3 defects found in acceptance testing
+### 4.3 Phase 3 acceptance defects — closed
 
 Independent acceptance testing on 2026-08-13 found three behavioural defects
-and one architectural finding, all verified against LLD-02: non-atomic port
-connection creation (D-01, critical), unresolvable array references (D-02,
-high), one-directional typed-reference pairing (D-03), and SQL outside the DAL
-(D-04). Recorded in `docs/PHASE3_IMPLEMENTED_REQUIREMENTS.md` §11 and scheduled
-as the first deliverable of Phase 4 (`docs/PHASE4_SCOPE.md` §3.0).
+and one architectural conformance issue, all verified against LLD-02. **All
+four were fixed the same day**, on the Phase 3 branch and before it merged, so
+`master` never carried the critical connection defect. Recorded in
+`docs/PHASE3_IMPLEMENTED_REQUIREMENTS.md` §11.
 
 ### 4.4 Phase 2 deviations are still unreviewed
 
@@ -316,3 +312,4 @@ Items 1–3 need no decisions from anyone. Items 4–5 do.
 |---------|------------|---------|
 | 1.0     | 2026-08-12 | Initial listing, written after Phase 3 implementation. |
 | 1.1     | 2026-08-13 | Added §1A, the authoritative phase map, retiring the original eight-phase numbering. Recorded the acceptance defects (§4.3), corrected the MCP Server status to "implemented with known acceptance defects", updated the current test result to 650/639/11, corrected the review report to eight sections and the CLI to twelve commands. |
+| 1.2     | 2026-08-13 | Acceptance defects D-01–D-04 fixed; MCP Server back to Complete; current result 652 passing. |

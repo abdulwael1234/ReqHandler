@@ -13,7 +13,7 @@
 | **Design**           | `docs/superpowers/specs/2026-08-12-phase3-mcp-tool-surface-design.md` |
 | **Plan**             | `docs/superpowers/plans/2026-08-12-phase3-mcp-tool-surface.md` (5 parts) |
 | **Predecessor**      | `docs/PHASE2_IMPLEMENTED_REQUIREMENTS.md`                    |
-| **Status**           | Implemented; **four defects found in independent acceptance testing on 2026-08-13** — see §11 |
+| **Status**           | Complete — 652 tests passing (60 acceptance), ruff clean, mypy strict clean. The 2026-08-13 acceptance defects are fixed; see §11 |
 
 ---
 
@@ -105,7 +105,7 @@ and `docs/PHASE5_SCOPE.md`; the authoritative old-to-new mapping is
 | SRS-027 | Referable records carry a unique `unique_key` | Full | `uuid4()` at create time | `test_inserts_and_returns_a_uuid_key` |
 | SRS-034, SRS-121 | Duplicate warning after normalized comparison | Full | `check_for_duplicates` normalizes both sides (DEV-36); warning returned and an `ambiguous` issue created | `test_duplicate_produces_a_warning_and_an_issue`, `test_matches_after_whitespace_normalization` |
 | SRS-036, SRS-030 | Missing optional relationship is NULL | Full | Optional refs bind NULL; an absent update argument never clears a column | `test_port_interface_key_may_stay_unresolved`, `test_an_absent_reference_argument_does_not_clear_the_column` |
-| SRS-036a | Unresolved reference creates an issue; blocks approval; resolvable later | **Partial** | Works for `StructElements`, `InterfaceDataElements`, `OperationArguments`. An **array** reference cannot be resolved: `update_type_definition` rejects `subtype` — **defect D-02, §11** | `test_unresolved_reference_creates_an_issue`, `test_resolving_a_reference_resolves_its_issue`, `test_unresolved_reference_blocks_approval` |
+| SRS-036a | Unresolved reference creates an issue; blocks approval; resolvable later | Full | All four columns, arrays included: `update_type_definition` accepts `subtype.element_type_key` and reopens or resolves the one tracking issue (D-02 fixed) | `TestArrayReferenceAcceptance` (3), `test_resolving_a_reference_resolves_its_issue`, `test_unresolved_reference_blocks_approval` |
 | SRS-037, SRS-108 | Deterministic ordering by position | Full | Inherited from the DAL's `_order_by` | `test_records_are_deterministically_ordered` |
 | SRS-038a | Exactly one subtype detail row per parent | Full | `create_type_definition` writes parent, detail and children in one transaction | `test_creates_a_simple_typedef_with_its_detail_row` |
 | SRS-038b | `position` and `array_size` are integers ≥ 1 | Full | `validate_position`, `validate_positive_int` | `TestValidatePosition`, `test_rejects_an_array_size_below_one` |
@@ -114,10 +114,10 @@ and `docs/PHASE5_SCOPE.md`; the authoritative old-to-new mapping is
 | SRS-044 | Subtype and child kind matching | Full | `validate_subtype_matches_kind`, `validate_parent_kind` | `test_struct_element_requires_a_struct_parent`, `test_enum_value_requires_an_enum_parent` |
 | SRS-052, SRS-055 | Interface type; children match it | Full | `INTERFACE_TYPES`, `validate_child_interface_type` | `TestChildTypeMatching` |
 | SRS-059, SRS-061, SRS-063 | Argument direction, port direction, relationship type | Full | Vocabularies in `validation/port_interfaces.py` | `TestOperationArgument`, `TestPortPrototype`, `TestPortPrototypeFunction` |
-| SRS-069, SRS-072 | Member existence; ≥1 provider and ≥1 requester | **Partial** | `validate_connection_complete` is correct but is only invoked on member *update*; `create_port_connection` can leave an empty connection persisted — **defect D-01, §11** | `TestValidateConnectionComplete` |
+| SRS-069, SRS-072 | Member existence; ≥1 provider and ≥1 requester | Full | `create_port_connection` takes a required `members` array and validates completeness inside the create transaction; member creation revalidates through `post_create` (D-01 fixed) | `TestPortConnectionAcceptance` (7), `TestValidateConnectionComplete` |
 | SRS-070 | No duplicate prototype per connection | Full | Enforced by a schema UNIQUE constraint; the validator branch is defence in depth (DEV-37) | `test_a_duplicate_prototype_cannot_be_stored` |
-| SRS-074 | Typed polymorphic artifact reference | **Partial** | The pairing is enforced in one direction only; `artifact_type` without `artifact_unique_key` is accepted — **defect D-03, §11** | `test_rejects_an_unknown_artifact_type`, `test_rejects_an_artifact_key_without_a_type` |
-| SRS-122 | Member mutation revalidates the connection transactionally | **Partial** | `update_port_connection_member` revalidates; `create_port_connection_member` does not — **defect D-01, §11** | `test_update_revalidates_the_whole_connection` |
+| SRS-074 | Typed polymorphic artifact reference | Full | Pairing enforced in both directions (D-03 fixed) | `test_rejects_an_artifact_key_without_a_type`, `test_artifact_type_without_artifact_key_is_rejected` |
+| SRS-122 | Member mutation revalidates the connection transactionally | Full | Both member creation and update revalidate the whole connection inside their own transaction (D-01 fixed) | `test_update_revalidates_the_whole_connection`, `test_adding_a_duplicate_member_rolls_back_only_that_mutation` |
 | SRS-125 | Unverifiable compatibility creates an `incomplete` issue | Full | `create_compatibility_review_issue`, run through `CreateSpec.post_create` inside the create transaction so the connection and its issue commit together | `test_creates_and_records_the_compatibility_issue` |
 
 ---
@@ -180,14 +180,13 @@ ruff check src tests   → All checks passed
 mypy (strict) src      → Success: no issues found in 63 source files
 ```
 
-**Current result (2026-08-13), after the independent acceptance suite was added:**
+**Current result (2026-08-13), after the acceptance suite and its fixes:**
 
 ```
-650 collected, 639 passed, 11 failed
+652 passed (60 of them the independent acceptance suite)
+ruff check src tests   → All checks passed
+mypy (strict) src      → Success: no issues found in 63 source files
 ```
-
-The 11 failures are the acceptance cases for defects D-01 to D-03 (§11). ruff
-and mypy remain clean.
 
 **Testing method:** development-level, by agreement with the project owner.
 These tests establish that the layer works and that its boundaries hold; they
@@ -318,12 +317,19 @@ were built around.
 
 **Files:** `src/r210_mcp/tools/registry.py`.
 
-### Status
+### Status — all four fixed, 2026-08-13
 
-Fixes are scheduled as the first deliverable of Phase 4
-(`docs/PHASE4_SCOPE.md` §3.0). Expected result on completion: 60 of 60
-acceptance cases passing and 650 of 650 in the full suite, with the four
-requirement rows above restored to **Full**.
+Fixed on the Phase 3 branch rather than deferred to Phase 4, so that `master`
+never carried the critical connection defect. Result: **60 of 60 acceptance
+cases and 652 of 652 in the full suite**, ruff and mypy clean. The four
+requirement rows above are back to **Full**, and Phase 4 §3.0 closed before
+Phase 4 began.
+
+Five Phase 3 tests in `test_entity_handlers.py` were rewritten as part of the
+D-01 fix. They had built connections incrementally from an empty one, which is
+exactly what the LLD forbids — they encoded the defect rather than catching it.
+The acceptance suite, written against the specification instead of against the
+implementation, is what exposed them.
 
 ---
 
@@ -334,3 +340,4 @@ requirement rows above restored to **Full**.
 | 1.0     | 2026-08-12 | Initial record of Phase 3 implementation. |
 | 1.1     | 2026-08-12 | Tightened SRS-015a(c): a create or update now returns only `unique_key`, warnings and demoted keys to an extraction-mode caller, matching LLD-02 §11.2 (DEV-38). Updated counts to 590. Source document is now LLD-02 v1.5, into which DEV-25 through DEV-38 are incorporated. |
 | 1.2     | 2026-08-13 | Recorded three defects and one architectural conformance issue found in independent acceptance testing (§11); downgraded SRS-069/072, SRS-122, SRS-036a and SRS-074 from Full to Partial; added the current 650/639/11 result and labelled the 590 figure historical; replaced the retired eight-phase numbering with a pointer to `REMAINING_WORK.md` §1A. |
+| 1.3     | 2026-08-13 | Fixed D-01 through D-04 on the Phase 3 branch; all four requirement rows restored to Full. Full suite 652 passing, acceptance 60 of 60. |
