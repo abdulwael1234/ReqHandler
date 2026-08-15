@@ -1,6 +1,7 @@
 """CLI entry point: parsing, dispatch and exit codes (SRS-118, SRS-123)."""
 
 import sys
+from typing import Any
 
 import pytest
 
@@ -138,3 +139,35 @@ class TestOutputEncoding:
             sys.stdout = original
         assert code == 0
         assert b"SensorData" in buffer.getvalue()
+
+
+class TestGenerationCommands:
+    """SRS-090, SRS-104: report and generate run the real generator."""
+
+    def test_report_command_writes_a_report(
+        self, seeded: Seeded, tmp_path: Any, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """SRS-104: `report` produces a file and exits 0.
+
+        Regression: GenerationResult.summary() names a count `warnings`
+        (LLD-04 §10), which collides with the MCP envelope's list of
+        duplicate-detection warnings. The formatter iterated it and raised
+        TypeError before the counts were renamed at the tool boundary.
+        """
+        code = cli.run(["--db", seeded.db_path, "report", "--output", str(tmp_path)])
+        assert code == 0
+        assert (tmp_path / "review_report.md").exists()
+        assert "report_file" in capsys.readouterr().out
+
+    def test_generate_reports_unmet_criteria(
+        self, seeded: Seeded, tmp_path: Any, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """PHASE5_SCOPE §2: R210 modes name what configuration is missing."""
+        code = cli.run(["--db", seeded.db_path, "generate", "--mode", "r210_only",
+                        "--output", str(tmp_path)])
+        assert code == 1
+        assert "SRS-019(c)" in capsys.readouterr().out
+
+    def test_generate_defaults_to_an_explicit_output_dir(self) -> None:
+        """DEV-48: the CLI states its default rather than inheriting one."""
+        assert cli.build_parser().parse_args(["generate"]).output == cli.DEFAULT_OUTPUT_DIR

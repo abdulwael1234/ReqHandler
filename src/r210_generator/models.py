@@ -200,6 +200,10 @@ class GenerationResult:
     r210_warnings: list[ValidationWarning] = field(default_factory=list)
     r210_errors: list[ValidationError] = field(default_factory=list)
     exported_artifacts: list[ExportedArtifact] = field(default_factory=list)
+    # Trees that passed evaluation, whether or not they were rendered. In
+    # report_only mode nothing is rendered, and this is what section (a) needs
+    # to say which trees *would* generate.
+    exportable_trees: list[ArtifactTree] = field(default_factory=list)
     # Unmet Phase 5 entry criteria, when R210 rendering was requested but the
     # work configuration is absent. Empty in every other case.
     unconfigured: list[str] = field(default_factory=list)

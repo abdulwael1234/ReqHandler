@@ -118,7 +118,24 @@ class DisplayFormatter:
             lines[0] += f"  ({result['table']})"
         if result.get("status") is not None:
             lines.append(f"  status: {self._status(result['status'])}")
+
         for key, label in (("demoted", "parent auto-demoted"), ("warnings", "warning")):
-            for item in result.get(key, []):
-                lines.append(f"  ⚠ {label}: {item}")
+            value = result.get(key)
+            # A response may carry a *count* under one of these names rather
+            # than a list; iterating it would raise. Only lists are expanded.
+            if isinstance(value, list):
+                for item in value:
+                    lines.append(f"  ⚠ {label}: {item}")
+
+        # A generation result has no unique_key; show what it produced instead.
+        for key in (
+            "mode",
+            "report_file",
+            "r210_files_generated",
+            "exported_artifacts",
+            "excluded_pending_children",
+            "excluded_unresolved_references",
+        ):
+            if key in result:
+                lines.append(f"  {key}: {result[key]}")
         return "\n".join(lines)

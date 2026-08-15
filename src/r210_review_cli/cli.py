@@ -59,6 +59,11 @@ ARTIFACT_STATUS_CHOICES = [
 
 GENERATION_MODES = ["r210_only", "report_only", "both"]
 
+# The tool requires an explicit destination (DEV-48). The CLI is an
+# interactive local program, so a cwd-relative default is the expected
+# behaviour here - but it is stated, not inherited.
+DEFAULT_OUTPUT_DIR = "r210_output"
+
 Command = Callable[[ReviewToolBridge, DisplayFormatter, argparse.Namespace], tuple[str, int]]
 
 COMMANDS: dict[str, Command] = {
@@ -118,11 +123,13 @@ def build_parser() -> argparse.ArgumentParser:
         parser_for.add_argument("unique_key")
 
     report_parser = sub.add_parser("report", help="Generate review report")
-    report_parser.add_argument("--output", help="Output directory")
+    report_parser.add_argument(
+        "--output", default=DEFAULT_OUTPUT_DIR, help="Output directory"
+    )
 
     gen_parser = sub.add_parser("generate", help="Trigger R210 generation")
     gen_parser.add_argument("--mode", choices=GENERATION_MODES, default="both")
-    gen_parser.add_argument("--output", help="Output directory")
+    gen_parser.add_argument("--output", default=DEFAULT_OUTPUT_DIR, help="Output directory")
 
     sub.add_parser("stats", help="Show database statistics")
     return parser
