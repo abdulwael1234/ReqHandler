@@ -909,6 +909,33 @@ class DataAccessLayer:
         record_type = TABLE_RECORD_MAP[table]
         return [self._to_record(record_type, row) for row in conn.execute(sql, params).fetchall()]
 
+    def search_by_name_pattern(
+        self, conn: sqlite3.Connection, table: str, pattern: str
+    ) -> list[Any]:
+        """Case-insensitive `LIKE` search on `name`, for the review CLI (SRS-118).
+
+        Mirrors `find_duplicates_by_name`: the table is resolved through the
+        allowlist, `name` presence is checked against `TABLE_COLUMNS`, and the
+        pattern is bound rather than interpolated. `COLLATE NOCASE` matches the
+        indexes V001 created for name lookups.
+
+        LLD-06 §4.2 specifies pattern search but the DAL only did equality;
+        adding it here rather than filtering client-side keeps one notion of
+        matching, inside the layer that owns the identifier allowlist (DEV-43).
+        """
+        self._check_table(table)
+        if "name" not in TABLE_COLUMNS[table]:
+            raise ValueError(f"{table} has no name column")
+
+        sql = (
+            f'SELECT {self._select_list(table)} FROM "{table}" '
+            f'WHERE "name" LIKE ? COLLATE NOCASE ORDER BY {self._order_by(table)}'
+        )
+        record_type = TABLE_RECORD_MAP[table]
+        return [
+            self._to_record(record_type, row) for row in conn.execute(sql, [pattern]).fetchall()
+        ]
+
     def resolve_unique_key(
         self, conn: sqlite3.Connection, unique_key: str
     ) -> tuple[str, Any] | None:
