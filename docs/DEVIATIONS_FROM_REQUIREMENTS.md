@@ -735,6 +735,289 @@ requirement's only guard.
 
 ---
 
+## 4C. Phase 4/5 Deviations — Review CLI, Generator, R210 Framework
+
+Recorded on 2026-08-15, on branch `feature/phase4-5-generator-and-review-cli`.
+Design spec:
+`docs/superpowers/specs/2026-08-15-phase4-5-generator-and-review-cli-design.md`.
+
+---
+
+### DEV-39 — Phase 5 split: framework built, template bodies deferred *(Refinement)*
+
+**Documents say:** `docs/PHASE5_SCOPE.md` §2 makes all of Phase 5 blocked until
+four work-computer entry criteria close, and §3.1 lists the whole `r210/`
+subpackage as Phase 5 scope. `docs/PHASE4_SCOPE.md` §6 excludes R210 rendering
+from Phase 4 entirely.
+
+**Implementation:** Phase 4 is delivered complete, and Phase 5 is split at the
+line LLD-04 §6 already draws. §6.1's template *interface*, §6.2's dispatch,
+§6.3's artifact ordering, §6.4's child ordering and §6.5's rejected-child
+exclusion are implemented and tested. §6.6's and §6.7's template *content* —
+the four bodies and the AUTOSAR mapping — remain declared plug-points.
+
+**Rationale:** None of §6.2–§6.5 depends on what a template says, and all of it
+is real logic that SRS-101 and SRS-108 constrain. Leaving it unwritten because a
+neighbouring section is blocked would defer work that is not blocked, and would
+leave the determinism requirement unverified until the one phase that cannot run
+in this environment. LLD-04 §11 states the intent this serves: "template
+implementations are pluggable — the generator framework is ready for any
+template content."
+
+**Effect on the phase boundary:** Phase 5 on the work computer becomes "write one
+module returning a populated `TemplateSet`, `NamingPolicy` and
+`AccessPointPolicy`, and pass it to `GeneratorConfig`". No framework code
+changes. `docs/PHASE5_SCOPE.md` §5 predicted this shape; this entry records that
+the seam moved one step further into Phase 5 than that document drew it.
+
+---
+
+### DEV-40 — The review CLI bridge does not import `R210McpServer` *(Correction)*
+
+**Documents say:** LLD-06 §5.1 specifies
+`from r210_mcp.server import R210McpServer`, and §5.2 constructs one.
+
+**Implementation:** `r210_review_cli/bridge.py` calls
+`build_context(db_path, adapter_mode="review")` and `tools.registry.dispatch`.
+It never imports `r210_mcp.server`.
+
+**Rationale:** LLD-06 contradicts itself. `server.py` is the only module in the
+repository that imports the `mcp` SDK, so following §5.1 would (a) make the
+review CLI unusable unless the SDK is installed, and (b) violate **LLD-06 §7
+item 2**, the network-isolation guarantee the same document states — "No MCP
+protocol", no import of "any MCP transport module". §7 carries the requirement
+(SRS-123); §5.1 is a code sketch written before Phase 3 existed. Phase 3 then
+created the seam that resolves it deliberately (DEV-26).
+
+Every guarantee §5.2 asks for is preserved: identical validation, identical
+transactions, identical errors, approval permitted structurally by
+`adapter_mode` (SRS-082a), and full unprojected records.
+
+**Verification:** `tests/test_r210_review_cli/test_isolation.py` asserts it two
+ways — an AST scan of every module in the package, and a subprocess import that
+checks `mcp` never enters `sys.modules`.
+
+---
+
+### DEV-41 — `ReviewToolBridge` lives in `bridge.py` *(Gap-fill)*
+
+**Documents say:** LLD-06 §3's module list contains `cli.py`, `commands/` and
+`display.py`. §5.2 specifies a `ReviewToolBridge` class but names no file.
+
+**Implementation:** `src/r210_review_cli/bridge.py`.
+
+**Rationale:** Argument parsing and tool invocation are separately testable
+concerns, and the bridge is what LLD-06 §5 spends its whole section on. Burying
+it in `cli.py` would leave the module that §5 cares most about without a file of
+its own.
+
+---
+
+### DEV-42 — CLI exit codes defined *(Gap-fill)*
+
+**Documents say:** LLD-06 specifies no exit codes.
+
+**Implementation:** `0` success, `1` tool error, `2` usage error — argparse's own
+convention, left untouched.
+
+**Rationale:** A CLI that exits 0 on failure cannot be scripted. The three-value
+split is conventional, and keeping argparse's `2` avoids overriding behaviour the
+library already gets right.
+
+---
+
+### DEV-43 — `DAL.search_by_name_pattern` added *(Gap-fill)*
+
+**Documents say:** LLD-06 §4.2 specifies `search <entity_type> --name <pattern>`.
+The DAL, completed in Phase 2, matches only by equality — `_where` builds
+`"name" = ?`. `docs/PHASE4_SCOPE.md` §5.1 leaves the resolution open.
+
+**Implementation:** One additive DAL method using `LIKE ? COLLATE NOCASE`, with
+the table resolved through `DAL_TABLES`, `name` presence checked against
+`TABLE_COLUMNS`, and the pattern bound as a parameter.
+
+**Rationale:** It follows `find_duplicates_by_name` exactly, the precedent this
+project already set for the same shape of problem. The alternative — filtering
+client-side over `query_by_table` — avoids touching a finished layer but loads
+whole tables to discard most rows, and puts a second, divergent notion of
+"matching" outside the DAL. The identifier allowlist is untouched, which was
+`docs/PHASE4_SCOPE.md` §9's stated risk.
+
+---
+
+### DEV-44 — Terminal colour gated on `isatty()` *(Refinement)*
+
+**Documents say:** LLD-06 §6.1 defines `STATUS_COLORS` but not when to apply
+them.
+
+**Implementation:** `DisplayFormatter(color: bool)`; `cli.run` passes
+`sys.stdout.isatty()`. The glyph and all text are identical either way.
+
+**Rationale:** ANSI escapes written into a redirected file or a pipe corrupt it.
+Making colour a constructor argument rather than an ambient check also keeps the
+formatter deterministic under test.
+
+**Related, found by running it:** `cli.run` also reconfigures stdout to UTF-8.
+LLD-06 §6.2's specified output uses box-drawing and status glyphs (`─`, `■`, `✓`,
+`✗`, `⚠`) that cp1252 — the Windows console default — cannot encode, and printing
+a formatted table raised `UnicodeEncodeError`. pytest captures as UTF-8, so only
+a real cp1252 stream reproduces it; `TestOutputEncoding` uses one.
+
+---
+
+### DEV-45 — The loader uses the existing layers, not raw `sqlite3` *(Correction)*
+
+**Documents say:** LLD-04 §9.2 shows the loader opening `sqlite3.connect`,
+setting `PRAGMA foreign_keys`, setting `row_factory`, and issuing its own
+`BEGIN`.
+
+**Implementation:** `loader.py` calls `DatabaseConnection.read_snapshot()` and
+`DataAccessLayer.query_table()`. It contains no SQL. `read_snapshot()` is a new
+context manager in `db/connection.py` issuing a deferred `BEGIN` and always
+rolling back.
+
+**Rationale:** Following §9.2 literally would add a fourth copy of the connection
+setup and a second module that writes SQL, against the architecture the project
+holds everywhere else. Putting the `BEGIN` in `connection.py` rather than in the
+generator is what preserves DEV-03 — transaction control lives in one module.
+`BEGIN` is deferred rather than `IMMEDIATE` because this is a reader and must not
+take a write lock.
+
+**Also covered:** §9.2 orders `TypeDefinitions` by `kind, name COLLATE NOCASE,
+id`, where the DAL orders by `id`. The loader applies the LLD's ordering in
+Python after loading, rather than adding a second ordering path to the finished
+DAL. The snapshot is already fully in memory; a Python sort is equally
+deterministic.
+
+---
+
+### DEV-46 — The report timestamp is injected, not read from a clock *(Gap-fill)*
+
+**Documents say:** SRS-101 requires byte-identical output for the same database
+content, generator version and work configuration. LLD-04 §7 does not say
+whether the report carries a generation timestamp. `docs/PHASE4_SCOPE.md` §5.4
+requires the question be decided in the design.
+
+**Implementation:** `GeneratorConfig.generated_at: str | None = None`. When
+`None` the report omits the timestamp line entirely; when set, the value is
+rendered verbatim. The CLI supplies a real timestamp; tests supply a fixed one.
+
+**Rationale:** SRS-101's own wording — "and work configuration" — covers an
+injected timestamp, so determinism holds without weakening the requirement. The
+alternative, excluding the timestamp from the comparison, makes the test weaker
+than the requirement and leaves a live source of nondeterminism in the product
+to protect the test from.
+
+**Verification:** determinism is asserted by comparing the **bytes** of two
+written reports, not two Python strings — a string comparison passes even when
+encoding or line endings differ, which is precisely what SRS-101 forbids.
+
+---
+
+### DEV-47 — R210 templates are injected as a `TemplateSet` *(Refinement)*
+
+**Documents say:** LLD-04 §2 places four template modules under
+`r210/templates/`, and §6.1 defines their functions. §6.7 sketches a
+module-level `RELATIONSHIP_TYPE_MAP`.
+
+**Implementation:** A frozen `TemplateSet` dataclass of eight callables, carried
+on `GeneratorConfig`, alongside `NamingPolicy` (SRS-019d) and
+`AccessPointPolicy` (SRS-064). The four modules remain where §2 puts them and
+keep §6.1's names and signatures; their bodies delegate to
+`UNCONFIGURED_TEMPLATES`, which raises `TemplateNotConfigured` naming the unmet
+entry criterion.
+
+**Rationale:** The framework must be testable. §6.2's dispatch, §6.3's ordering,
+§6.4's child ordering, §6.5's exclusion and SRS-101's byte-determinism are all
+real logic with nothing to do with template content, and injecting a synthetic
+`TemplateSet` exercises every one of them end to end. Module-level stubs would
+leave that logic reachable only through monkeypatching, and would make installing
+the work templates an edit to committed source rather than a configuration value.
+
+**Effect on DEV-31:** amended, not closed. `trigger_generation` now delegates.
+`report_only` is fully operative; `r210_only` and `both` run the pipeline and
+report the unmet Phase 5 entry criteria by SRS number, instead of a blanket "not
+yet implemented". DEV-31 closes when real templates are installed.
+
+The unmet criteria are checked **before** rendering rather than by catching a
+template raise: an empty database calls no template at all, and reporting success
+for an R210 mode that could never produce a file would misreport the
+configuration rather than the data.
+
+---
+
+### DEV-48 — `trigger_generation` requires `output_dir` *(Correction)*
+
+**Documents say:** LLD-02 §7.9 gives `trigger_generation` a `mode` argument and
+no destination. LLD-04 §3.1 gives `Generator` an `output_dir` constructor
+argument without saying where it comes from.
+
+**Implementation:** `output_dir` is a required tool argument with no default.
+
+**Rationale:** Found by running the tool rather than by testing it. With a
+relative default, `trigger_generation` wrote a review report into the repository
+root — wherever the server process happened to be started. Output paths are work
+configuration (SRS-019d) and this repository copy has none, so any default is a
+guess, and a relative one is a guess that writes to an arbitrary directory. The
+review CLI supplies its own documented default (`DEFAULT_OUTPUT_DIR`), because a
+local interactive program may reasonably resolve against the working directory —
+but it states that default rather than inheriting one.
+
+---
+
+### DEV-49 — Generation summary keys renamed at the tool boundary *(Correction)*
+
+**Documents say:** LLD-04 §10 defines `GenerationResult.summary()` with keys
+`r210_files_generated`, `report_generated`, `warnings`, `errors`,
+`exported_artifacts`.
+
+**Implementation:** `summary()` keeps LLD-04's names. The `trigger_generation`
+tool maps `warnings` → `excluded_pending_children` and `errors` →
+`excluded_unresolved_references` when building its response.
+
+**Rationale:** `warnings` already means something else in an MCP response
+envelope — the list of duplicate-detection strings of SRS-034/SRS-121. Splicing
+the generator's integer count in under the same name produced a response whose
+`warnings` was sometimes a list and sometimes an int; the review CLI's display
+layer iterated it and raised `TypeError`. Renaming at the boundary that owns the
+response shape leaves LLD-04 §10 intact for the generator's own API.
+
+---
+
+### DEV-50 — `run()` rewritten against the MCP SDK's actual API *(Correction)*
+
+**Documents say:** LLD-02 §9 registers each tool with
+`server.call_tool(name)(handler)` on `mcp.server.Server`.
+
+**Implementation:** `mcp.server.lowlevel.Server` constructed with `on_list_tools`
+and `on_call_tool` callables. `build_server()` is split out from `run()` so the
+wiring is testable without opening a transport.
+
+**Rationale:** The sketch does not work. `Server` has no `call_tool` attribute in
+the SDK installed here (`mcp` 2.0.0); the lowlevel server dispatches by name
+itself, which is closer to what `tools/registry.py` already does. This was the
+one never-executed path in the codebase (`docs/REMAINING_WORK.md` §4.1), and
+running it is what found the defect.
+
+**Consequences:** `pyproject.toml` moves from `mcp>=1.0` to `mcp>=2.0` — only 2.x
+is verified, and the 1.x registration API is not what this code calls. An
+`McpError` is returned as a `CallToolResult` with `is_error=True` rather than
+raised, because SRS-109 requires the caller receive the operation, field, reason
+and affected key.
+
+**Known gap:** tools are advertised with a permissive input schema
+(`{"type": "object", "additionalProperties": true}`). Per-tool JSON Schema
+generation from the existing `CreateSpec`/`UpdateSpec`/`QuerySpec` descriptors is
+open work, recorded in `docs/REMAINING_WORK.md`.
+
+**Verification:** driven out of band against a real `ClientSession` over stdio —
+35 tools listed, create and query round-tripped, SRS-015a projection confirmed on
+the wire, SRS-082a approval denied, unknown tool returned a structured error.
+`tests/test_r210_mcp/test_server_adapter.py` locks the wiring in, skipped when
+the SDK is absent.
+
+---
+
 ## 5. Deviation Index
 
 | ID | Type | Area | Approval |
@@ -777,6 +1060,18 @@ requirement's only guard.
 | DEV-36 | Correction | SRS-034 compares normalized forms over candidates | Incorporated into LLD-02 v1.5 |
 | DEV-37 | Correction | SRS-070 enforced by the schema, not the validator | Incorporated into LLD-02 v1.5 |
 | DEV-38 | Refinement | §11.2 mutation restriction extends to update tools | Incorporated into LLD-02 v1.5; code corrected to match |
+| DEV-39 | Refinement | Phase 5 split: framework built, template bodies deferred | Phase 4/5 — pending review |
+| DEV-40 | Correction | Review CLI bridge targets `tools/registry`, not `server` | Phase 4/5 — pending review |
+| DEV-41 | Gap-fill | `ReviewToolBridge` in `bridge.py` | Phase 4/5 — pending review |
+| DEV-42 | Gap-fill | CLI exit codes 0/1/2 | Phase 4/5 — pending review |
+| DEV-43 | Gap-fill | `DAL.search_by_name_pattern` | Phase 4/5 — pending review |
+| DEV-44 | Refinement | Colour gated on `isatty()`; stdout forced to UTF-8 | Phase 4/5 — pending review |
+| DEV-45 | Correction | Loader uses `connection.py`/`dal.py`, not raw `sqlite3` | Phase 4/5 — pending review |
+| DEV-46 | Gap-fill | Report timestamp injected via `generated_at` | Phase 4/5 — pending review |
+| DEV-47 | Refinement | R210 templates injected as a `TemplateSet` | Phase 4/5 — pending review |
+| DEV-48 | Correction | `trigger_generation` requires `output_dir` | Phase 4/5 — pending review |
+| DEV-49 | Correction | Generation summary keys renamed at the tool boundary | Phase 4/5 — pending review |
+| DEV-50 | Correction | `run()` rewritten against the real MCP SDK API | Phase 4/5 — pending review |
 | DEV-O-01 | Resolved decision | Report-only behavior for damaged current-version schema | Approved; incorporated into SRS v5.3 |
 | DEV-O-02 | Resolved decision | Nullable unresolved cross-artifact type references | Approved and implemented in V002 |
 | DEV-O-03 | Resolved decision | `r210-review` entry point | Closed at Phase 3 — the entry point resolves; the CLI itself is Phase 8 scope |
@@ -787,6 +1082,26 @@ items are incorporated into the v5.4 requirements baseline. Remaining entries
 are either scheduled future-phase work or the external SRS-015 authorization.
 
 DEV-17 through DEV-24 record Phase 2 and have not yet been reviewed.
+
+DEV-39 through DEV-50 record Phase 4 and the Phase 5 framework, and have not yet
+been reviewed. Five of the twelve were found by **running** the system rather
+than by reading the documents, and each corrects a real fault:
+
+- **DEV-48** — `trigger_generation` wrote a review report into the repository
+  root, because its `output_dir` defaulted to a relative path.
+- **DEV-49** — the review CLI raised `TypeError` on every successful `report`,
+  because LLD-04 §10 names an integer count `warnings` and an MCP envelope
+  already uses that name for a list.
+- **DEV-50** — `run()` could not have worked against any installed SDK; LLD-02
+  §9's registration call does not exist in `mcp` 2.x.
+- **DEV-44** (second half) — the CLI died with `UnicodeEncodeError` on a Windows
+  console, because LLD-06 §6.2's specified glyphs are outside cp1252.
+- **DEV-47** (second half) — R210 modes reported success on an empty database,
+  because no template was called and so nothing raised.
+
+DEV-31 is **amended, not closed** (see DEV-47): `trigger_generation` now
+delegates to the generator, `report_only` is operative, and the R210 modes name
+their unmet entry criteria. It closes when the work templates are installed.
 
 DEV-25 through DEV-38 record Phase 3 and are **closed**: LLD-02 v1.5 has been
 amended so the document and the implementation agree, and each entry names the
@@ -817,3 +1132,4 @@ which is the level at which they arose.
 | 1.4     | 2026-08-12 | Added section 4B covering Phase 3 (validation layer, 35 tool handlers, server adapter): DEV-25 through DEV-37. Recorded owner approval of DEV-33, the decision that Phase 3 absorbs Phases 4–6. DEV-36 supersedes DEV-24. |
 | 1.5     | 2026-08-12 | Closed the Phase 3 register. DEV-25 through DEV-38 are incorporated into LLD-02 v1.5, which now matches the implementation section by section. Added DEV-38, the one entry resolved by correcting the code rather than the document: §11.2 already restricted create responses to `unique_key` and warnings, the implementation was returning full projected records, and the restriction now extends to update tools. Closed DEV-O-03 — its premise (a missing `cli.py`) is out of date; the entry point resolves and the CLI itself is Phase 8 scope. No Phase 3 entry required an SRS amendment. |
 | 1.6     | 2026-08-13 | Recorded that absorbing three phases retired the original eight-phase map (DEV-33 follow-on) and pointed at `docs/REMAINING_WORK.md` §1A as the authoritative old-to-new mapping. References to "Phase 7"/"Phase 8" in earlier entries are historical. |
+| 1.7     | 2026-08-15 | Added section 4C covering Phase 4 and the Phase 5 framework: DEV-39 through DEV-50. Recorded that five of the twelve were found by executing the system rather than by document review, including three that would have failed in the field (DEV-44, DEV-48, DEV-49) and one path that could never have worked (DEV-50). DEV-31 amended rather than closed. |

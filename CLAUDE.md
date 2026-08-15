@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 pip install -e ".[dev]"                      # editable install (not required for tests)
 
-python -m pytest tests/ -q                   # full suite: 652 tests, all passing
+python -m pytest tests/ -q                   # full suite: 846 tests, all passing
 python -m pytest tests/test_r210_mcp/test_dal.py -q
 python -m pytest tests/test_r210_mcp/test_dal.py::TestRoundTrip::test_every_table_round_trips -q
 
@@ -16,6 +16,10 @@ python -m mypy src                           # gate: strict, must be clean
 
 python -m r210_db_init init r210.db          # create/upgrade a database
 python -m r210_db_init reset r210.db --confirm   # destructive, dev only
+
+r210-review --db r210.db stats               # review CLI (12 commands, LLD-06)
+r210-review --db r210.db report --output out # review report (SRS-104)
+python -m r210_mcp r210.db --mode extraction # stdio MCP server (needs mcp>=2.0)
 ```
 
 `pyproject.toml` sets `pythonpath = ["src"]`, so pytest imports the packages without an install.
@@ -31,7 +35,9 @@ LLD-02 rather than against the implementation. It caught four defects the develo
 including five development tests that had encoded a defect instead of catching it. If it fails, fix
 the code — not the test.
 
-`r210-review` (the console script in `pyproject.toml`) resolves but exits 1; the CLI is Phase 4.
+`tests/test_r210_generator/test_renderer.py` injects a synthetic `TemplateSet`. That is how the
+R210 rendering pipeline is tested without the work-computer templates — see DEV-47. Do not
+replace it with invented real templates.
 
 ## This is a document-driven project
 
@@ -62,25 +68,28 @@ implementation and to the tests that verify them.
 
 ## Implementation state
 
-`r210_mcp/` is complete. The 2026-08-13 acceptance defects (D-01–D-04,
-`docs/PHASE3_IMPLEMENTED_REQUIREMENTS.md` §11) are fixed.
-
-`r210_generator/` and `r210_review_cli/` are still docstring-only stubs — a file's docstring tells
-you what belongs there. `r210-review` therefore exits 1.
+**Every component is implemented.** What remains is four R210 template bodies and one AUTOSAR
+mapping table — all work-computer values, deliberately absent from this copy.
 
 - **Phase 1** — `r210_db_init/` (migrations, initializer, CLI, dev_reset) and `r210_mcp/db/models.py`
 - **Phase 2** — `r210_mcp/errors.py`, `db/connection.py`, `db/dal.py`
 - **Phase 3** — `validation/`, `duplicate_detection.py`, `projection.py`, `tools/`, `server.py`
+- **Phase 4** — `r210_review_cli/` (12 commands), `r210_generator/` except template bodies,
+  `gemini_skill/r210_extraction.md`, and the corrected stdio adapter
+- **Phase 5 (framework only)** — `r210_generator/r210/renderer.py` and the `TemplateSet` /
+  `NamingPolicy` / `AccessPointPolicy` plug-points
+
+`R210McpServer.run()` **has now been executed** against a real client over stdio and was corrected
+in the process: LLD-02 §9's `server.call_tool(name)(handler)` does not exist in `mcp` 2.x (DEV-50).
+There is no longer an unverified path.
 
 **Phase numbering is delivery order, and `docs/REMAINING_WORK.md` §1A is authoritative.** Phase 3
 absorbed what the original eight-phase map called Phases 4–6 (DEV-33), which retired that map.
-Remaining work is **Phase 4** (`docs/PHASE4_SCOPE.md` — Phase 3 remediation, review CLI, generator
-core, review report, Gemini skill) and **Phase 5** (`docs/PHASE5_SCOPE.md` — R210 rendering, blocked
-on SRS-019(c) and SRS-064). Older documents saying "Phase 7/8" mean these; `REPOSITORY_REVIEW_REPORT.md`
-§7 uses a third, five-phase map — ignore its numbering.
-
-`R210McpServer.run()` has never been executed — the `mcp` SDK is not installed here. It is the one
-unverified path; everything else is reachable through `handle_tool`.
+Phase 4 is complete (`docs/PHASE4_IMPLEMENTED_REQUIREMENTS.md`). Phase 5 is **partially** complete
+(`docs/PHASE5_IMPLEMENTED_REQUIREMENTS.md`): its framework half was built under DEV-39 because
+LLD-04 §6.2–§6.5 needs no work configuration, while §6.6–§6.7 does. Older documents saying
+"Phase 7/8" mean Phases 4/5; `REPOSITORY_REVIEW_REPORT.md` §7 uses a third, five-phase map — ignore
+its numbering.
 
 ## Architecture
 
@@ -97,9 +106,28 @@ validation/ + duplicate_detection.py
 tools/_engine.py (descriptors) → tools/<entity>.py (35 handlers)
       ↓
 tools/registry.py (dispatch, error boundary, projection boundary)
-      ↓
-server.py (stdio adapter — the only module that imports `mcp`)
+      ↓                                    ↓
+server.py (stdio adapter —       r210_review_cli/bridge.py
+the only module importing `mcp`)  → commands/ → cli.py
+
+r210_generator/  (sits above the DAL, imported by nothing in r210_mcp
+loader.py → validator.py → report/ + r210/renderer.py → generator.py
+except `tools/generation.py`, which imports it lazily at call time)
 ```
+
+**Both new packages sit above the finished stack.** `r210_review_cli` reaches
+`tools/registry`, never `server.py` — that module imports the `mcp` SDK, and importing it would
+break the SRS-123 network isolation LLD-06 §7 requires (DEV-40). Two tests assert this.
+
+**The generator's R210 templates are injected, not imported** (DEV-47). `GeneratorConfig` carries a
+`TemplateSet`, a `NamingPolicy` and an `AccessPointPolicy`; the defaults raise
+`TemplateNotConfigured` naming the unmet SRS. This is what lets the rendering pipeline —
+dispatch, ordering, rejected-child exclusion, byte-determinism — be finished and tested while the
+work-specific template bodies do not exist. To complete Phase 5, write one module returning
+populated policies; do not edit the framework.
+
+**`trigger_generation` requires `output_dir`** (DEV-48). There is no default, because output paths
+are work configuration (SRS-019d) and a relative default wrote a report into the repository root.
 
 **Handlers are functions, not methods** (DEV-26): `handle_x(ctx: ToolContext, arguments: dict)
 -> dict`. `ToolContext` carries the connection factory, the DAL and `adapter_mode`
@@ -169,3 +197,13 @@ Phase 1 was developed test-first and mutation-checked; Phase 2 tests are describ
 development-level rather than an exhaustive verification campaign. New tests should assert against a
 real migrated SQLite database rather than mocks — that is what keeps the schema, models, and DAL
 from drifting apart.
+
+**Two areas are tested adversarially, and should stay that way:** the review CLI's network
+isolation (SRS-123 — an AST scan of every module plus a subprocess import check) and output
+determinism (SRS-101 — compared as **bytes**, never as Python strings; a string comparison passes
+even when encoding or line endings differ).
+
+**Passing tests are not sufficient evidence here.** Phase 4 found five faults by executing the
+system that the suite did not catch, including a `TypeError` on every successful `report` and a
+`UnicodeEncodeError` on any Windows console (`docs/PHASE4_IMPLEMENTED_REQUIREMENTS.md` §7). Run the
+CLI and the server, do not only run pytest.

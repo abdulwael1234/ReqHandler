@@ -10,7 +10,7 @@
 | **Source Documents** | R210-SRS-001 v5.4, R210-LLD-04 v1.3 §6                       |
 | **Predecessor**      | `docs/PHASE4_SCOPE.md`                                       |
 | **Companion**        | `docs/WORK_MACHINE_CONFIGURATION.md`; `docs/REMAINING_WORK.md` §1A for the phase map |
-| **Status**           | **Blocked** — cannot start until the entry criteria in §2 are met |
+| **Status**           | **Partially delivered 2026-08-15** — framework built under DEV-39; template content still blocked on §2 |
 
 ---
 
@@ -40,7 +40,7 @@ decision or a value, not development work.
 | 2 | File and artifact naming conventions, output paths defined | SRS-019(d) | Work computer |
 | 3 | AUTOSAR package paths and metamodel/version identifiers defined | SRS-019 | Work computer |
 | 4 | `access_point` selection rule documented — which input picks `DataReadAccess`, `DataWriteAccess` or `ServerCallPoint` | SRS-064 | Development team |
-| 5 | Phase 4 complete | — | Development |
+| 5 | Phase 4 complete | — | **Met 2026-08-15** |
 
 Criteria 1–4 are recorded in `docs/WORK_MACHINE_CONFIGURATION.md` and must be
 completed **on the work computer**, after the repository is transferred.
@@ -53,6 +53,14 @@ records that compatibility was not verified.
 ---
 
 ## 3. Deliverables
+
+> **Delivered 2026-08-15, framework only.** §6.1's template interface and
+> §6.2–§6.5 (dispatch, artifact ordering, child ordering, rejected-child
+> exclusion) need no work configuration and are implemented and tested
+> against an injected synthetic `TemplateSet`. §6.6 and §6.7 — the four
+> template bodies and the AUTOSAR mapping — remain open, and the four entry
+> criteria in §2 are unchanged. See DEV-39 and
+> `docs/PHASE5_IMPLEMENTED_REQUIREMENTS.md`.
 
 ### 3.1 R210 rendering subpackage
 
@@ -193,3 +201,4 @@ the blockage is a configuration decision, not an engineering one.
 |---------|------------|---------|
 | 1.0     | 2026-08-13 | Initial scope, agreed after the Phase 3 hand-off. |
 | 1.1     | 2026-08-13 | Review fixes: clarified delivery-order numbering against the retired eight-phase map; recorded that this phase completes SRS-101, which Phase 4 satisfies only for the review report. |
+| 1.2     | 2026-08-15 | Recorded the partial delivery: LLD-04 §6 divides into structural rules needing no work configuration and template content that does, and the first half was built in the Phase 4 branch (DEV-39). Entry criteria 1-4 unchanged; criterion 5 met. |
