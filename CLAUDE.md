@@ -51,6 +51,7 @@ document; a change that contradicts it is a deviation and must be recorded, not 
 | LLD-01 Database Schema | `lld/LLD_01_Database_Schema.md` |
 | LLD-02 MCP Server (largest; §3–§11 drive most code) | `lld/LLD_02_MCP_Server.md` |
 | LLD-03…06 | `lld/LLD_0{3,4,5,6}_*.md` |
+| Transfer checklist (external → work machine) | `docs/TRANSFER_CHECKLIST.md` |
 
 Traceability is enforced by convention, not tooling: module docstrings end with `See: LLD-0n §x`,
 and test docstrings cite the `SRS-nnn` they verify. Keep both when adding code.
