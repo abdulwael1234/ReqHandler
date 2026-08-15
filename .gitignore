@@ -30,8 +30,17 @@ desktop.ini
 *.sqlite
 *.sqlite3
 
-# R210 generated output (produced by the generator)
+# R210 generated output (produced by the generator).
+#
+# WORK_MACHINE_CONFIGURATION.md requires that no generated output or review
+# report is committed or transferred off the work computer. These patterns are
+# that requirement's last line of defence against `git add -A`, so they must
+# stay in step with the code: `r210_output/` is the review CLI's
+# DEFAULT_OUTPUT_DIR and `review_report.md` is GeneratorConfig.report_filename.
 output/
+r210_output/
+review_report.md
+*.arxml
 
 # Claude Code
 .claude/

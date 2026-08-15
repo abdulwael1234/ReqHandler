@@ -11,7 +11,7 @@
 | **Predecessor**      | `docs/PHASE3_IMPLEMENTED_REQUIREMENTS.md`                    |
 | **Successor**        | `docs/PHASE5_SCOPE.md`                                       |
 | **Companion**        | `docs/REMAINING_WORK.md` (§1A carries the authoritative phase map) |
-| **Status**           | Scope agreed — design spec and implementation plan not yet written |
+| **Status**           | **Complete 2026-08-15** — see `docs/PHASE4_IMPLEMENTED_REQUIREMENTS.md` |
 
 ---
 
@@ -308,3 +308,4 @@ precedent and should be written adversarially: the CLI's network isolation
 | 1.0     | 2026-08-13 | Initial scope, agreed after the Phase 3 hand-off. |
 | 1.1     | 2026-08-13 | Review fixes: clarified the delivery-order numbering against the retired eight-phase map; marked SRS-101 Partial for this phase, since R210-output determinism belongs to Phase 5; widened D-01 to cover both creation paths; reclassified D-04 as an architectural conformance issue rather than a defect; stated the Phase 5 entry criteria as more than two TBDs. |
 | 1.2     | 2026-08-13 | §3.0 closed: D-01–D-04 fixed on the Phase 3 branch before merge. |
+| 1.3     | 2026-08-15 | Phase complete. All eight §7 criteria met, including criterion 6 (`run()` verification), which this document had treated as conditional on a machine with the SDK. §5.1 resolved as a DAL method (DEV-43); §5.4 resolved by injecting the timestamp (DEV-46); §5.2 and §5.3 applied as written. |

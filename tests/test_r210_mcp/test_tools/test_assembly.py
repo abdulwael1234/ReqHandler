@@ -4,6 +4,7 @@ registry and the server adapter.
 See: LLD-02 §7.7-7.9, §9, §11
 """
 
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -215,19 +216,38 @@ class TestResolveReference:
 
 
 class TestTriggerGeneration:
-    @pytest.mark.parametrize("mode", ["r210_only", "report_only", "both"])
-    def test_validates_the_mode_then_reports_unavailable(
-        self, initialized_db: str, mode: str
-    ) -> None:
-        """SRS-090 — the tool exists; the generator arrives in a later phase."""
+    def test_report_only_generates(self, initialized_db: str, tmp_path: Path) -> None:
+        """SRS-104 — the report is producible with no approved artifacts."""
         ctx = build_context(initialized_db, "review")
-        response = handle_trigger_generation(ctx, {"mode": mode})
-        assert "not yet implemented" in response["error"]["reason"]
+        response = handle_trigger_generation(
+            ctx, {"mode": "report_only", "output_dir": str(tmp_path)}
+        )
+        assert response["result"]["report_generated"] is True
+
+    @pytest.mark.parametrize("mode", ["r210_only", "both"])
+    def test_r210_modes_report_unmet_entry_criteria(
+        self, initialized_db: str, mode: str, tmp_path: Path
+    ) -> None:
+        """SRS-090 — rendering needs work configuration this copy does not have.
+
+        Supersedes DEV-31's blanket "not yet implemented": the pipeline runs
+        and names the open Phase 5 entry criteria (DEV-47).
+        """
+        ctx = build_context(initialized_db, "review")
+        response = handle_trigger_generation(ctx, {"mode": mode, "output_dir": str(tmp_path)})
+        assert "SRS-019(c)" in response["error"]["reason"]
+        assert "not configured" in response["error"]["reason"]
 
     def test_rejects_an_unknown_mode(self, initialized_db: str) -> None:
         ctx = build_context(initialized_db, "review")
         response = dispatch(ctx, "trigger_generation", {"mode": "everything"})
         assert response["error"]["field"] == "mode"
+
+    def test_requires_an_output_dir(self, initialized_db: str) -> None:
+        """DEV-48 — output paths are work configuration; there is no default."""
+        ctx = build_context(initialized_db, "review")
+        response = dispatch(ctx, "trigger_generation", {"mode": "report_only"})
+        assert response["error"]["field"] == "output_dir"
 
 
 class TestRegistry:

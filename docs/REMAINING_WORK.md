@@ -9,6 +9,7 @@
 | **Source Documents** | R210-SRS-001 v5.4, R210-LLD-03 v1.3, R210-LLD-04 v1.3, R210-LLD-06 v1.2 |
 | **Companions**       | `docs/PHASE1_IMPLEMENTED_REQUIREMENTS.md`, `docs/PHASE2_IMPLEMENTED_REQUIREMENTS.md`, `docs/PHASE3_IMPLEMENTED_REQUIREMENTS.md` |
 | **Status**           | Living document — updated as each remaining item closes       |
+| **Last update**      | 2026-08-15 — Phase 4 complete; Phase 5 framework delivered (DEV-39) |
 | **Superseded by**    | `docs/PHASE4_SCOPE.md`, `docs/PHASE5_SCOPE.md` for phase-level planning |
 | **Phase numbering**  | See §1A — authoritative; the original eight-phase map is retired |
 
@@ -59,140 +60,123 @@ scope is recorded as a deviation, as DEV-33 was, rather than renumbered.
 
 ## 2. Current State
 
-Three of six components are complete. Nothing below is partially built: each
-remaining component is docstring-only scaffolding whose modules describe what
-they will contain.
+Five of six components are complete and the sixth is complete apart from its
+work-specific template content. Nothing below is docstring-only scaffolding any
+more; §3 records what each component now contains and what is still owed.
 
 | Component | LLD | State |
 |-----------|-----|-------|
 | Database Schema | LLD-01 | **Complete** (Phase 1) |
 | Database Initializer | LLD-05 | **Complete** (Phase 1) |
-| MCP Server | LLD-02 | **Complete** (Phases 2–3) — acceptance defects D-01–D-04 fixed 2026-08-13; `run()` unverified, see §4.1 |
-| Gemini CLI Skill | LLD-03 | **Stub** — see §3.1 |
-| Deterministic Generator | LLD-04 | **Stub** — see §3.2 |
-| Local Review CLI | LLD-06 | **Stub** — see §3.3 |
+| MCP Server | LLD-02 | **Complete** (Phases 2–3) — acceptance defects D-01–D-04 fixed 2026-08-13; `run()` corrected and verified 2026-08-15, see §4.1 |
+| Gemini CLI Skill | LLD-03 | **Complete** (Phase 4) — see §3.1 |
+| Deterministic Generator | LLD-04 | **Complete except R210 template bodies** (Phase 4 + Phase 5 framework) — see §3.2 |
+| Local Review CLI | LLD-06 | **Complete** (Phase 4) — see §3.3 |
 
-**Current result (2026-08-13):** 652 tests passing, including the 60-case
+**Current result (2026-08-15):** 865 tests passing, including the 60-case
 independent acceptance suite. `ruff check src tests` and `mypy src` (strict)
 are clean.
 
+**Three of six components were stubs on 2026-08-13. None is now.** What remains
+is four R210 template bodies and one mapping table, all work-computer values —
+see `docs/PHASE5_IMPLEMENTED_REQUIREMENTS.md` §4.
+
 ---
 
-## 3. Components Still To Build
+## 3. Component Status
 
-### 3.1 Gemini CLI Skill (LLD-03)
+Phase 4 and the Phase 5 framework closed §3.1–§3.3 as they stood on 2026-08-13.
+This section now records what each component contains and what is still owed.
+Full records: `docs/PHASE4_IMPLEMENTED_REQUIREMENTS.md`,
+`docs/PHASE5_IMPLEMENTED_REQUIREMENTS.md`.
 
-**File:** `src/gemini_skill/r210_extraction.md` — 54 lines, self-declared
-`Status: Stub — behavioral rules and extraction procedures TBD`.
+### 3.1 Gemini CLI Skill (LLD-03) — **complete**
 
-The file currently carries the MCP server configuration and an outline of the
-role. LLD-03 specifies roughly ten times that content. Missing:
+**File:** `src/gemini_skill/r210_extraction.md` — was 54 stub lines, now the
+full LLD-03 §4–§11 content: the synthetic-mode gate, seven behavioural rules,
+the classification decision tree, nine extraction procedures, issue recording,
+dependency-ordered processing, error handling, the 35-tool quick reference and
+the data-boundary statement.
 
-| LLD-03 § | Content | SRS |
-|----------|---------|-----|
-| §4.0 | Synthetic-mode gate | SRS-015 |
-| §4.1 | No-invention rule | SRS-003, SRS-077 |
-| §4.2 | Query-first rule | SRS-078 |
-| §4.3 | Stable UUID rule | SRS-079 |
-| §4.4 | Issue recording rule | SRS-080, SRS-081 |
-| §4.5 | No approval authority — always pass `caller="extraction"` | SRS-082a |
-| §4.6 | No direct database access | SRS-082 |
-| §4.7 | Data minimization | SRS-015a |
-| §5 | Classification decision tree, multi-artifact requirements | — |
-| §6.1–6.9 | Nine extraction procedures, one per artifact type | — |
-| §7 | When and how to create review issues | SRS-080, SRS-081 |
-| §8 | Dependency-ordered processing | — |
-| §9 | MCP tool error handling and batch failure | — |
-| §10 | MCP tool quick reference — all 35 tools | — |
-| §11 | The exact fields that enter and never enter Gemini context | SRS-015a |
+Written against `TOOL_HANDLERS`, not LLD-03's sketch. §12 of the skill records
+four places the two differ; three are LLD-03 naming arguments the tools reject
+(`create_port_interface(children=…)`, `create_port_prototype(functions=…)`, a
+required `table_hint`). `tests/test_gemini_skill/` cross-checks the prose
+against the registry and the SRS-015a allowlist so it cannot drift silently.
 
-**Note on §10 and §11.** These must be written against the *implemented* tool
-surface, not the LLD's earlier sketch. Two Phase 3 outcomes change what the
-skill can expect: `set_review_status` treats `table_hint` as optional (DEV-35),
-and an extraction-mode create or update now returns only `unique_key`,
-warnings and demoted keys — no record fields (DEV-38). A skill written to read
-`name` or `status` back from a create response will not work.
+**Still true:** SRS-015 is unapproved, so the skill cannot be exercised against
+real requirement text (§5.1). It is written and reviewable; it is not cleared to
+run on real data.
 
-**Blocked by:** nothing technical. Note that SRS-015 remains unapproved (§5.1),
-so the skill cannot be exercised against real requirement text regardless.
+### 3.2 Deterministic Generator (LLD-04) — **complete except template bodies**
 
-### 3.2 Deterministic Generator (LLD-04) — Phases 4 and 5
+**Files:** `src/r210_generator/` — was 14 stubs, now implemented.
 
-**Files:** `src/r210_generator/` — 14 modules totalling ~110 lines of
-docstrings. Every one is a stub.
+| LLD-04 § | Module | Status |
+|---|---|---|
+| §3 | `generator.py` | **Done** — all three modes run the pipeline |
+| §4 | `validator.py` | **Done** — including §4.3's recursive client-server case |
+| §5 | `validator.py` | **Done** — §5.1's six mandatory references |
+| §6.1–6.5 | `r210/renderer.py`, `r210/templates/__init__.py` | **Done** — dispatch, ordering, exclusion, plug-point contract |
+| §6.6–6.7 | `r210/templates/*.py` | **Open** — template bodies and AUTOSAR mapping; SRS-019(c), SRS-064 |
+| §7 | `report/builder.py`, `report/sections.py` | **Done** — nine sections in fixed order |
+| §8 | `r210/file_writer.py` | **Done** — UTF-8/LF, byte-identical |
+| §9 | `loader.py` | **Done** — via `read_snapshot()` and the DAL (DEV-45) |
+| §10 | `models.py` | **Done** |
 
-| LLD-04 § | Module | Responsibility | SRS |
-|----------|--------|----------------|-----|
-| §3 | `generator.py` | Orchestrator, three generation modes | SRS-090, SRS-104 |
-| §4 | `validator.py` | Parent–child exportable-tree evaluation | SRS-104a, SRS-092a |
-| §5 | `validator.py` | Foreign-key validation | SRS-102 |
-| §6 | `r210/renderer.py`, `r210/templates/*` | R210 file rendering, four templates | SRS-103, SRS-073 |
-| §6.3–6.5 | `r210/renderer.py` | Artifact and child ordering; rejected-child exclusion | SRS-101, SRS-108, SRS-092a |
-| §6.7 | `r210/templates/*` | AUTOSAR metamodel mapping | SRS-064 — **TBD, see §5.3** |
-| §7 | `report/builder.py`, `report/sections.py` | Review report, eight sections (a)–(h) | SRS-104 |
-| §8 | `r210/file_writer.py` | UTF-8/LF, byte-identical output | SRS-101 |
-| §9 | `loader.py` | Database snapshot loading | SRS-101 |
-| §10 | `models.py` | `GenerationResult` | SRS-090 |
+**`trigger_generation` now delegates.** `report_only` is fully operative;
+`r210_only` and `both` run the pipeline and report their unmet Phase 5 entry
+criteria by SRS number. DEV-31 is amended, not closed — it closes when the
+templates are installed.
 
-**Also unblocks:** `trigger_generation` currently registers, validates `mode`,
-and returns a structured "not yet implemented" error (DEV-31). It needs no
-caller changes when the generator lands — only the delegation.
+**Export half of SRS-036a is done:** `validate_fk_completeness` excludes and
+reports any artifact whose mandatory references are unresolved.
 
-**Also completes:** the export half of SRS-036a. Phase 3 implemented the
-approval block (`check_references_resolved`); "shall not be **exported**"
-belongs here.
+**Remaining work is one module.** See
+`docs/PHASE5_IMPLEMENTED_REQUIREMENTS.md` §4.1 for the exact signatures.
 
-**Blocked by:** SRS-064 and SRS-019(c) for R210 file output (§5.3, §6). The
-**review report is not blocked** — `REPOSITORY_REVIEW_REPORT.md` §7 recommends
-building report-only generation first for exactly this reason, since it depends
-on the database snapshot rather than on work-specific templates.
+### 3.3 Local Review CLI (LLD-06) — **complete**
 
-### 3.3 Local Review CLI (LLD-06) — Phase 4
+**Files:** `src/r210_review_cli/` — was 9 stubs, now all twelve LLD-06 §4.1
+commands, the tool bridge, display formatting and the network-isolation
+guarantee. `r210-review` runs end to end; the walkthrough is recorded in
+`docs/PHASE4_IMPLEMENTED_REQUIREMENTS.md` §4.
 
-**Files:** `src/r210_review_cli/` — 9 modules totalling ~68 lines. `cli.py`
-defines `main()`, which prints `r210-review: not yet implemented` and exits 1.
-The `r210-review` console script therefore resolves correctly; it simply has no
-behaviour yet (see DEV-O-03, closed).
+The bridge targets `tools/registry` rather than `R210McpServer` as LLD-06 §5.1
+shows, because that module imports the `mcp` SDK and would break §7's own
+isolation requirement (DEV-40). Isolation is asserted by an AST scan and a
+subprocess import check rather than by the code review §7 asks for.
 
-| LLD-06 § | Module | Responsibility | SRS |
-|----------|--------|----------------|-----|
-| §4 | `cli.py` | Argument parsing, twelve commands | SRS-123 |
-| §5 | `commands/*` | Review tool bridge over the MCP handlers | SRS-118, SRS-123 |
-| §6 | `display.py` | Record and tree display formatting | — |
-| §7 | — | Network isolation guarantee | SRS-123 |
+---
 
-Commands specified (LLD-06 §4.1): `list`, `show`, `search`, `approve`,
-`reject`, `mark`, `resolve`, `dismiss`, `reopen`, `report`, `generate`,
-`stats`. The `cli.py` stub docstring lists only nine and is stale — LLD-06 is
-normative.
+## 3A. Open Work Introduced by Phase 4
 
-**Ready to build.** Phase 3 deliberately produced the surface this component
-needs: handlers are plain functions over a `ToolContext` (DEV-26), and
-`tools/registry.py` exposes `dispatch`, `query_by_table`,
-`get_children_for_display` and `get_stats` without importing the MCP SDK. The
-CLI constructs its context with `adapter_mode="review"`, which is what permits
-approval (SRS-082a) and returns full records.
+Small, and none of it blocking.
 
-**Blocked by:** nothing. This is the least-blocked remaining component and the
-one that makes the system usable by a human reviewer.
+| Item | Detail | Raised by |
+|---|---|---|
+| Per-tool JSON Schema on the MCP surface | Tools are advertised with `{"type": "object", "additionalProperties": true}`. The `CreateSpec`/`UpdateSpec`/`QuerySpec` descriptors already hold the argument names and could generate real schemas, which would make the surface self-describing to an LLM client | DEV-50 |
+| `mcp` floor raised to 2.0 | Only 2.x is verified. If 1.x support is wanted, `build_server()` needs a compatibility branch | DEV-50 |
+| Phase 2 deviations still unreviewed | DEV-17–DEV-24 have never been through review | pre-existing |
 
 ---
 
 ## 4. Verification Still Owed
 
-### 4.1 `R210McpServer.run()` has never been executed
+### 4.1 `R210McpServer.run()` — **closed 2026-08-15**
 
-The `mcp` SDK is not installed in this environment, so the stdio transport
-wiring in `server.py` has never run. It is marked `# pragma: no cover`, and
-`mypy` carries an `ignore_missing_imports` override for `mcp.*` and `anyio`.
+The `mcp` SDK installed successfully (version 2.0.0), so the stdio transport was
+run for the first time — and **it did not work**. LLD-02 §9's
+`server.call_tool(name)(handler)` registration does not exist in `mcp` 2.x.
 
-Everything else is reachable without the SDK through `handle_tool`, which is
-what LLD-06 requires, so the tool surface itself is fully tested — but the
-protocol adapter is not.
+`run()` was rewritten against the lowlevel `Server`'s `on_list_tools` /
+`on_call_tool` interface (DEV-50), and verified against a real `ClientSession`
+over stdio: 35 tools listed, create and query round-tripped, SRS-015a projection
+confirmed on the wire, SRS-082a approval denied, unknown tool returned a
+structured error. `tests/test_r210_mcp/test_server_adapter.py` locks the wiring
+in and skips when the SDK is absent, so the suite still runs without it.
 
-**Closure condition:** install the SDK, run `python -m r210_mcp <db> --mode
-extraction`, and confirm a client can list and call tools. Correct `run()` if
-the SDK's API differs from the sketch; no test depends on its internals.
+This was the last unverified path in the codebase.
 
 ### 4.2 Independent testing of Phases 2 and 3
 
@@ -287,22 +271,42 @@ define and validate the SRS-071 compatibility rules.
 
 ---
 
-## 7. Suggested Order
+## 7. What Is Left
 
-1. **Local Review CLI (LLD-06).** Unblocked, and it is what makes the
-   implemented tool surface usable by a human reviewer. Until it exists, review
-   requires direct MCP tool calls.
-2. **Review-report generation (LLD-04 §7).** The half of the generator that
-   depends on the database snapshot rather than on work-specific templates, so
-   it can be built and golden-file tested now.
-3. **Verify `run()`** on a machine with the SDK — small, and it closes the last
-   untested path in a complete component.
-4. **Gemini CLI Skill (LLD-03).** Writable now, but not exercisable against
-   real data until SRS-015 is approved.
-5. **R210 file generation (LLD-04 §6).** Genuinely blocked on SRS-019(c) and
-   SRS-064; attempting it earlier means guessing at templates.
+Items 1–5 of the previous ordering are done. What remains is listed by who can
+unblock it, because none of it is now a development question.
 
-Items 1–3 need no decisions from anyone. Items 4–5 do.
+### On the work computer — Phase 5 completion
+
+1. **Close the four entry criteria** (`docs/PHASE5_SCOPE.md` §2): R210 output
+   templates (SRS-019c), naming conventions and output paths (SRS-019d),
+   AUTOSAR package paths and version identifiers (SRS-019), and the
+   `access_point` selection rule (SRS-064).
+2. **Write one configuration module** returning a populated `TemplateSet`,
+   `NamingPolicy` and `AccessPointPolicy`, and pass it to `GeneratorConfig`.
+   Exact signatures: `docs/PHASE5_IMPLEMENTED_REQUIREMENTS.md` §4.1. No
+   framework code should need to change; if it does, that is a deviation worth
+   recording, because the seam was drawn in the wrong place.
+3. **Verify byte-identity against the approved templates**, and across two runs.
+
+### From stakeholders
+
+4. **SRS-015** — authorization for real requirement text to reach Gemini. Until
+   it is granted, the system stays in synthetic-data-only mode even on the work
+   computer. This blocks *use*, not development.
+5. **SRS-071** — interface compatibility rules. Until then the SRS-125 fallback
+   stands: connections are accepted with an `incomplete` review issue.
+
+### Development, optional
+
+6. **Per-tool JSON Schema** on the MCP surface (§3A) — would make the tool
+   surface self-describing to an LLM client rather than permissive.
+7. **Review DEV-17–DEV-24** (Phase 2) and **DEV-39–DEV-50** (Phase 4/5).
+8. **Independent acceptance testing** of Phase 4, as was done for Phase 3.
+   Phase 3's independent suite found four defects the development tests missed;
+   Phase 4's own testing already found five faults by execution
+   (`docs/PHASE4_IMPLEMENTED_REQUIREMENTS.md` §7), which suggests the same
+   exercise would be worth repeating.
 
 ---
 
@@ -313,3 +317,5 @@ Items 1–3 need no decisions from anyone. Items 4–5 do.
 | 1.0     | 2026-08-12 | Initial listing, written after Phase 3 implementation. |
 | 1.1     | 2026-08-13 | Added §1A, the authoritative phase map, retiring the original eight-phase numbering. Recorded the acceptance defects (§4.3), corrected the MCP Server status to "implemented with known acceptance defects", updated the current test result to 650/639/11, corrected the review report to eight sections and the CLI to twelve commands. |
 | 1.2     | 2026-08-13 | Acceptance defects D-01–D-04 fixed; MCP Server back to Complete; current result 652 passing. |
+| 1.3     | 2026-08-15 | Phase 4 complete and the Phase 5 framework delivered (DEV-39). Sections 3.1-3.3 rewritten from "still to build" to component status; §4.1 closed - `run()` was executed for the first time, found broken against `mcp` 2.x, corrected and verified (DEV-50). Added §3A for open work Phase 4 introduced, and rewrote §7 by who can unblock each item rather than by build order. Current result 846 passing. |
+| 1.4     | 2026-08-15 | Expanded Phase 4/5 acceptance coverage after documentation review. Corrected SRS-104 report-only semantics and completed report child summaries; current result 865 passing. |
