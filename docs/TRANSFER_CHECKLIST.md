@@ -31,15 +31,30 @@ The two constraints that shape it:
 
 ### 2.1 Verified state
 
-Recorded 2026-08-15 on branch `feature/phase4-5-generator-and-review-cli`:
+Recorded 2026-08-15 on `master` at the Phase 4 merge (`6386cab`):
 
 | Check | Result |
 |---|---|
-| `python -m pytest tests/ -q -p no:cacheprovider` | 854 passing |
+| `python -m pytest tests/ -q -p no:cacheprovider` | 871 passing |
 | `python -m ruff check src tests` | clean |
 | `python -m mypy src` | clean (strict) |
 | `r210-review` end to end on synthetic data | verified — `PHASE4_IMPLEMENTED_REQUIREMENTS.md` §4 |
 | `python -m r210_mcp` over stdio with a real client | verified — `PHASE4_IMPLEMENTED_REQUIREMENTS.md` §5 |
+
+**The transfer itself was rehearsed**, because a checklist that has never been
+executed is a guess:
+
+| Rehearsal | Result |
+|---|---|
+| `git clone` into a clean directory, then run the suite and both gates | full suite passing, gates clean — nothing depends on untracked local state |
+| A virtualenv with **no `mcp` SDK** | 863 passing, 1 skipped — only the stdio-adapter module |
+| `r210-review stats` and `report` with no SDK | exit 0, report written |
+| `python -m r210_mcp` with no SDK | exits 1 with an actionable message, not a traceback (DEV-51) |
+
+That last row was a defect found by the rehearsal: the server used to die with
+a bare `ModuleNotFoundError: No module named 'anyio'`, which names a transitive
+dependency and tells the operator neither what to install nor that the review
+CLI and generator work regardless.
 
 ### 2.2 Confinement: generated output cannot be committed
 

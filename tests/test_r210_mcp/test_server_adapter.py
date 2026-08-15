@@ -122,3 +122,4 @@ class TestCallTool:
         result = self._call(initialized_db, "create_type_definition", {"name": "X"})
         assert result.is_error is True
         assert json.loads(result.content[0].text)["error"]["field"] == "kind"
+

@@ -1018,6 +1018,29 @@ the SDK is absent.
 
 ---
 
+### DEV-51 — A missing SDK is reported, not raised as a traceback *(Gap-fill)*
+
+**Documents say:** nothing. LLD-02 §9 assumes the SDK is present.
+
+**Implementation:** `run()` raises `SdkNotInstalled`, and `__main__` prints it
+and exits 1. The message names the dependency, gives the install command, states
+the 2.x constraint, and says that the review CLI, the generator and the tool
+handlers all work without it.
+
+**Rationale:** Found by rehearsing the transfer in a virtualenv with no `mcp`
+installed. The server died with `ModuleNotFoundError: No module named 'anyio'` —
+a *transitive* dependency, so the message named neither `mcp` nor anything the
+operator could act on, and gave no hint that the rest of the prototype was
+unaffected. The work computer may have no package index, which makes this the
+likely first experience there rather than an edge case.
+
+**Note on the tests:** they live in `tests/test_r210_mcp/test_server_sdk_absence.py`,
+not in `test_server_adapter.py`, because that module opens with
+`importorskip("mcp")` and would skip exactly on the machine these assertions are
+about.
+
+---
+
 ## 5. Deviation Index
 
 | ID | Type | Area | Approval |
@@ -1072,6 +1095,7 @@ the SDK is absent.
 | DEV-48 | Correction | `trigger_generation` requires `output_dir` | Phase 4/5 — pending review |
 | DEV-49 | Correction | Generation summary keys renamed at the tool boundary | Phase 4/5 — pending review |
 | DEV-50 | Correction | `run()` rewritten against the real MCP SDK API | Phase 4/5 — pending review |
+| DEV-51 | Gap-fill | Missing SDK reported actionably, not as a traceback | Phase 4/5 — pending review |
 | DEV-O-01 | Resolved decision | Report-only behavior for damaged current-version schema | Approved; incorporated into SRS v5.3 |
 | DEV-O-02 | Resolved decision | Nullable unresolved cross-artifact type references | Approved and implemented in V002 |
 | DEV-O-03 | Resolved decision | `r210-review` entry point | Closed at Phase 3 — the entry point resolves; the CLI itself is Phase 8 scope |
@@ -1083,8 +1107,8 @@ are either scheduled future-phase work or the external SRS-015 authorization.
 
 DEV-17 through DEV-24 record Phase 2 and have not yet been reviewed.
 
-DEV-39 through DEV-50 record Phase 4 and the Phase 5 framework, and have not yet
-been reviewed. Five of the twelve were found by **running** the system rather
+DEV-39 through DEV-51 record Phase 4 and the Phase 5 framework, and have not yet
+been reviewed. Six of the thirteen were found by **running** the system rather
 than by reading the documents, and each corrects a real fault:
 
 - **DEV-48** — `trigger_generation` wrote a review report into the repository
@@ -1133,3 +1157,4 @@ which is the level at which they arose.
 | 1.5     | 2026-08-12 | Closed the Phase 3 register. DEV-25 through DEV-38 are incorporated into LLD-02 v1.5, which now matches the implementation section by section. Added DEV-38, the one entry resolved by correcting the code rather than the document: §11.2 already restricted create responses to `unique_key` and warnings, the implementation was returning full projected records, and the restriction now extends to update tools. Closed DEV-O-03 — its premise (a missing `cli.py`) is out of date; the entry point resolves and the CLI itself is Phase 8 scope. No Phase 3 entry required an SRS amendment. |
 | 1.6     | 2026-08-13 | Recorded that absorbing three phases retired the original eight-phase map (DEV-33 follow-on) and pointed at `docs/REMAINING_WORK.md` §1A as the authoritative old-to-new mapping. References to "Phase 7"/"Phase 8" in earlier entries are historical. |
 | 1.7     | 2026-08-15 | Added section 4C covering Phase 4 and the Phase 5 framework: DEV-39 through DEV-50. Recorded that five of the twelve were found by executing the system rather than by document review, including three that would have failed in the field (DEV-44, DEV-48, DEV-49) and one path that could never have worked (DEV-50). DEV-31 amended rather than closed. |
+| 1.8     | 2026-08-15 | Added DEV-51, found by rehearsing the transfer in a virtualenv without the `mcp` SDK: the server reported a missing transitive dependency (`anyio`) instead of the SDK, the install command, or the fact that everything else still works. |

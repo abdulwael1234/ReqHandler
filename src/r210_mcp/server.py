@@ -15,6 +15,26 @@ from .tools.context import build_context
 from .tools.registry import TOOL_HANDLERS, dispatch
 
 
+class SdkNotInstalled(RuntimeError):
+    """The `mcp` SDK is needed for the stdio transport and is not importable.
+
+    Only `run()` and `build_server()` need it. Everything else — the 35 tool
+    handlers, the review CLI (SRS-123), the generator — works without it, and
+    the message says so, because the alternative is an operator concluding the
+    whole prototype is unusable on a machine that cannot reach a package index.
+    """
+
+    def __init__(self, cause: ImportError) -> None:
+        super().__init__(
+            f"the MCP stdio server needs the 'mcp' SDK, which is not installed ({cause}).\n"
+            "  Install it with:  python -m pip install 'mcp>=2.0'\n"
+            "  Version 2.x is required: the 1.x registration API is not what this code calls.\n"
+            "  Everything else works without it - the review CLI (r210-review), the\n"
+            "  generator, and the tool handlers themselves are all SDK-free by design."
+        )
+        self.cause = cause
+
+
 class R210McpServer:
     """Binds a database and an authority mode to the tool surface (SRS-082a)."""
 
@@ -79,9 +99,19 @@ class R210McpServer:
         )
 
     def run(self) -> None:  # pragma: no cover - opens a stdio transport
-        """Serve the tool surface over stdio (LLD-02 §9)."""
-        import anyio
-        from mcp.server.stdio import stdio_server
+        """Serve the tool surface over stdio (LLD-02 §9).
+
+        Raises `SdkNotInstalled` rather than letting `ModuleNotFoundError`
+        escape: on a machine where `mcp` cannot be installed — which the work
+        computer may well be — a bare traceback naming `anyio` tells the
+        operator nothing about what to do, or that the review CLI and the
+        generator work regardless (DEV-51).
+        """
+        try:
+            import anyio
+            from mcp.server.stdio import stdio_server
+        except ImportError as exc:
+            raise SdkNotInstalled(exc) from exc
 
         server = self.build_server()
 

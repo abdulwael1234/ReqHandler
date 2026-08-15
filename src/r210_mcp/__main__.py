@@ -4,8 +4,9 @@ See: LLD-02 §9 (MCP Server Entry Point)
 """
 
 import argparse
+import sys
 
-from .server import R210McpServer
+from .server import R210McpServer, SdkNotInstalled
 
 
 def main() -> None:
@@ -19,7 +20,14 @@ def main() -> None:
         help="Adapter authority mode (SRS-082a)",
     )
     args = parser.parse_args()
-    R210McpServer(args.db_path, args.mode).run()
+    try:
+        R210McpServer(args.db_path, args.mode).run()
+    except SdkNotInstalled as exc:
+        # A missing optional dependency is a configuration problem, not a
+        # crash: report it and exit 1 rather than printing a traceback whose
+        # top line names `anyio` (DEV-51).
+        print(f"r210-mcp: {exc}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
