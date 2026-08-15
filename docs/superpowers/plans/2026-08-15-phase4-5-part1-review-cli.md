@@ -2,6 +2,14 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Status: executed 2026-08-15, with deviations.** Only Part 1 was written as a
+> formal plan; the remaining sub-projects were implemented directly against the
+> design spec. Where this plan's illustrative test code differs from what was
+> committed, the committed tests are authoritative — several fixtures here were
+> written before checking that `create_*` tools generate their own UUIDs and that
+> `subtype` is mandatory. See `docs/PHASE4_IMPLEMENTED_REQUIREMENTS.md` for what
+> was actually delivered.
+
 **Goal:** Build `r210_review_cli/` — a twelve-command local CLI that lets a human review extracted artifacts through the same validation logic the MCP server uses, with no network capability whatsoever.
 
 **Architecture:** The CLI is a thin shell over the Phase 3 tool surface. `bridge.py` builds a `ToolContext` with `adapter_mode="review"` and calls `r210_mcp.tools.registry.dispatch`; `commands/*.py` translate argv into bridge calls; `display.py` turns response dicts into terminal text. Nothing in the CLI imports `r210_mcp.server`, because that module imports the `mcp` SDK and would break the SRS-123 isolation guarantee (see DEV-40 in the design spec).
