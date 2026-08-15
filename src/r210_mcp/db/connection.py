@@ -69,3 +69,26 @@ class DatabaseConnection:
             yield conn
         finally:
             conn.close()
+
+    @contextmanager
+    def read_snapshot(self) -> Generator[sqlite3.Connection, None, None]:
+        """Run many reads against one consistent view of the database.
+
+        The generator loads fifteen tables and must see the same state in all
+        of them (LLD-04 §9.2), which `read_only` cannot promise: without a
+        transaction another process may commit between two SELECTs.
+
+        ``BEGIN`` is deferred, not ``IMMEDIATE``: this is a reader and must not
+        take a write lock. The transaction always ends in ``ROLLBACK`` — there
+        is nothing to commit, and rolling back cannot fail on a read.
+
+        The ``BEGIN`` lives here rather than in the caller because this module
+        is the only place that controls transactions (DEV-03).
+        """
+        conn = self.connect()
+        try:
+            conn.execute("BEGIN")
+            yield conn
+        finally:
+            conn.rollback()
+            conn.close()
