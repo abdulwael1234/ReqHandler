@@ -44,14 +44,22 @@ class TestReportOnly:
         assert result.report_file is not None
         assert result.success
 
-    def test_report_lists_the_approved_tree(self, populated_db: str, tmp_path: Path) -> None:
-        """SRS-104(a): an approved tree appears even when nothing rendered."""
+    def test_report_does_not_claim_approved_tree_was_generated(
+        self, populated_db: str, tmp_path: Path
+    ) -> None:
+        """SRS-104(a): report_only leaves the generated-artifact section empty."""
         result = Generator(populated_db, GeneratorConfig(output_dir=str(tmp_path))).generate(
             "report_only"
         )
         assert result.report_file is not None
         content = Path(result.report_file).read_text(encoding="utf-8")
-        assert "SensorData" in content
+        generated_section = content[
+            content.index("## (a) Approved and Generated") : content.index(
+                "## (a2) Excluded - Unresolved References"
+            )
+        ]
+        assert "No artifacts were approved and generated." in generated_section
+        assert "SensorData" not in generated_section
 
     def test_report_only_needs_no_work_configuration(
         self, populated_db: str, tmp_path: Path
@@ -120,6 +128,22 @@ class TestConfiguredR210Modes:
         result = Generator(populated_db, synthetic_config(str(tmp_path))).generate("both")
         assert result.r210_files and result.report_file is not None
         assert result.success
+
+    def test_both_report_names_every_file_actually_generated(
+        self, populated_db: str, tmp_path: Path
+    ) -> None:
+        """SRS-104(a): section (a) is an auditable manifest of R210 output."""
+        result = Generator(populated_db, synthetic_config(str(tmp_path))).generate("both")
+        assert result.report_file is not None
+        report = Path(result.report_file).read_text(encoding="utf-8")
+        generated_section = report[
+            report.index("## (a) Approved and Generated") : report.index(
+                "## (a2) Excluded - Unresolved References"
+            )
+        ]
+        assert f"## (a) Approved and Generated - {len(result.r210_files)}" in generated_section
+        for rendered in result.r210_files:
+            assert f"file={rendered.path}" in generated_section
 
 
 class TestDeterminism:

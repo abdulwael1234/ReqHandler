@@ -13,7 +13,6 @@ See: LLD-04 §7 (Review Report Builder)
 from typing import Any
 
 from ..models import (
-    ArtifactTree,
     DatabaseSnapshot,
     ExportedArtifact,
     ValidationError,
@@ -50,10 +49,32 @@ CHILD_SOURCES: tuple[tuple[str, str], ...] = (
     ("port_connection_members", "Port Connection Member"),
 )
 
+# Direct reviewable-child relationships used by LLD-04 §7.3 summaries.
+CHILD_RELATIONSHIPS: dict[str, tuple[tuple[str, str], ...]] = {
+    "type_definitions": (
+        ("struct_elements", "struct_type_id"),
+        ("enum_values", "enum_type_id"),
+    ),
+    "port_interfaces": (
+        ("interface_data_elements", "port_interface_id"),
+        ("client_server_operations", "port_interface_id"),
+    ),
+    "client_server_operations": (("operation_arguments", "operation_id"),),
+    "port_prototypes": (("port_prototype_functions", "port_prototype_id"),),
+    "port_connections": (("port_connection_members", "port_connection_id"),),
+}
+
+STATUS_ORDER = ("approved", "pending_review", "ambiguous", "rejected", "out_of_scope")
+
 
 def _label(record: Any) -> str:
     """`name` for most records; `description` for PortConnections."""
-    return str(getattr(record, "name", None) or getattr(record, "description", None) or "")
+    return str(
+        getattr(record, "name", None)
+        or getattr(record, "function_name", None)
+        or getattr(record, "description", None)
+        or ""
+    )
 
 
 def _type_title(table_label: str, record: Any) -> str:
@@ -67,35 +88,42 @@ def _heading(letter: str, title: str, count: int) -> list[str]:
     return [f"## ({letter}) {title} - {count}", ""]
 
 
-def _artifact_line(type_title: str, record: Any, source_reference: str | None) -> str:
+def _children_summary(snapshot: DatabaseSnapshot, source: str, parent_id: int) -> str:
+    """Count direct reviewable children by status in a deterministic order."""
+    children = [
+        child
+        for child_source, foreign_key in CHILD_RELATIONSHIPS.get(source, ())
+        for child in getattr(snapshot, child_source)
+        if getattr(child, foreign_key) == parent_id
+    ]
+    counts = {status: sum(child.status == status for child in children) for status in STATUS_ORDER}
+    details = ", ".join(f"{status}={counts[status]}" for status in STATUS_ORDER if counts[status])
+    return f"children={len(children)}" + (f" ({details})" if details else "")
+
+
+def _artifact_line(
+    type_title: str,
+    record: Any,
+    source_reference: str | None,
+    children_summary: str,
+) -> str:
     """One artifact row (LLD-04 §7.3)."""
     parts = [f"- `{record.unique_key}` {type_title}: {_label(record)}", f"status={record.status}"]
     if source_reference:
         parts.append(f"source={source_reference}")
+    parts.append(children_summary)
     return "  ".join(parts)
 
 
-def section_approved_generated(
-    exported: list[ExportedArtifact], trees: list[ArtifactTree]
-) -> list[str]:
-    """(a) Artifacts included in the R210 output (SRS-104(a)).
-
-    When no R210 generation ran, the exportable trees are still listed: they
-    are what *would* be generated, which is the reviewer's actual question.
-    """
+def section_approved_generated(exported: list[ExportedArtifact]) -> list[str]:
+    """(a) Artifacts included in the R210 output (SRS-104(a))."""
     lines = _heading("a", "Approved and Generated", len(exported))
     if exported:
         for item in sorted(exported, key=lambda a: (a.table, a.label.lower(), a.unique_key)):
             lines.append(f"- `{item.unique_key}` {item.table}: {item.label}  file={item.path}")
         return [*lines, ""]
 
-    if trees:
-        lines.append("No R210 files were generated in this run. Fully approved trees:")
-        lines.append("")
-        for tree in sorted(trees, key=lambda t: (t.table, t.label.lower(), t.unique_key)):
-            lines.append(f"- `{tree.unique_key}` {tree.table}: {tree.label}")
-    else:
-        lines.append("No artifacts were approved and generated.")
+    lines.append("No artifacts were approved and generated.")
     return [*lines, ""]
 
 
@@ -129,23 +157,26 @@ def section_artifacts_by_status(
     snapshot: DatabaseSnapshot, status: str, letter: str, title: str
 ) -> list[str]:
     """(c)-(f) Every artifact and reviewable child in one review state."""
-    rows: list[tuple[str, str, Any]] = []
+    rows: list[tuple[str, str, str, Any]] = []
     for attribute, table_label in ARTIFACT_SOURCES + CHILD_SOURCES:
         for record in getattr(snapshot, attribute):
             if record.status == status:
-                rows.append((table_label, _label(record), record))
+                rows.append((attribute, table_label, _label(record), record))
 
     lines = _heading(letter, title, len(rows))
     if not rows:
         lines.append(f"No artifacts are {status}.")
         return [*lines, ""]
 
-    for table_label, label, record in sorted(rows, key=lambda r: (r[0], r[1].lower(), r[2].id)):
+    for attribute, table_label, label, record in sorted(
+        rows, key=lambda r: (r[1], r[2].lower(), r[3].id)
+    ):
         lines.append(
             _artifact_line(
                 _type_title(table_label, record),
                 record,
                 snapshot.source_reference_of(getattr(record, "source_requirement_id", None)),
+                _children_summary(snapshot, attribute, record.id),
             )
         )
     return [*lines, ""]

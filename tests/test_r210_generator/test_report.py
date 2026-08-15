@@ -2,6 +2,8 @@
 
 from typing import Any
 
+import pytest
+
 from r210_generator.models import (
     ExportedArtifact,
     GenerationResult,
@@ -15,7 +17,15 @@ from r210_generator.validator import evaluate_exportable_trees
 from .conftest import (
     PENDING,
     REJECTED,
+    argument,
     base_type,
+    connection_member,
+    data_element,
+    function,
+    operation,
+    port_connection,
+    port_interface,
+    port_prototype,
     review_issue,
     simple_detail,
     source_requirement,
@@ -69,15 +79,20 @@ class TestSectionContent:
         report = ReportBuilder().build(make_snapshot(), result, _config())
         assert "SensorData" in report and "out/SensorData.arxml" in report
 
-    def test_section_a_lists_trees_when_nothing_rendered(self, make_snapshot: Any) -> None:
-        """SRS-104: report_only still shows which trees would generate."""
+    def test_section_a_is_empty_when_nothing_rendered(self, make_snapshot: Any) -> None:
+        """SRS-104(a): approved trees are not reported as generated files."""
         snapshot = make_snapshot(
             type_definitions=[base_type(1)], simple_type_definitions=[simple_detail(1, 1)]
         )
         result = GenerationResult(exportable_trees=evaluate_exportable_trees(snapshot).trees)
         report = ReportBuilder().build(snapshot, result, _config())
-        assert "No R210 files were generated in this run" in report
-        assert "Float32" in report
+        generated_section = report[
+            report.index("## (a) Approved and Generated") : report.index(
+                "## (a2) Excluded - Unresolved References"
+            )
+        ]
+        assert "No artifacts were approved and generated." in generated_section
+        assert "Float32" not in generated_section
 
     def test_section_a2_lists_fk_errors(self, make_snapshot: Any) -> None:
         """SRS-102: artifacts excluded for unresolved references are listed."""
@@ -127,6 +142,90 @@ class TestSectionContent:
         )
         report = ReportBuilder().build(snapshot, GenerationResult(), _config())
         assert "Struct Element: temperature" in report
+
+    def test_parent_row_summarizes_child_statuses(self, make_snapshot: Any) -> None:
+        """LLD-04 §7.3: every parent row summarizes its direct children."""
+        snapshot = make_snapshot(
+            type_definitions=[type_definition(2, "SensorData", status=PENDING)],
+            struct_elements=[
+                struct_element(1, 2, "approved", 1),
+                struct_element(2, 2, "pending", 2, status=PENDING),
+                struct_element(3, 2, "rejected", 3, status=REJECTED),
+            ],
+        )
+        report = ReportBuilder().build(snapshot, GenerationResult(), _config())
+        parent_row = next(line for line in report.splitlines() if "SensorData" in line)
+        assert "children=3 (approved=1, pending_review=1, rejected=1)" in parent_row
+
+    def test_leaf_row_reports_zero_children(self, make_snapshot: Any) -> None:
+        """LLD-04 §7.3: leaf artifacts carry an explicit empty summary."""
+        snapshot = make_snapshot(
+            type_definitions=[type_definition(1, "Leaf", status=PENDING)]
+        )
+        report = ReportBuilder().build(snapshot, GenerationResult(), _config())
+        leaf_row = next(line for line in report.splitlines() if "Leaf" in line)
+        assert "children=0" in leaf_row
+
+    def test_function_child_uses_its_domain_name(self, make_snapshot: Any) -> None:
+        """LLD-04 §7.3: a function row includes its function_name."""
+        snapshot = make_snapshot(
+            port_prototypes=[port_prototype(1, "SensorPort")],
+            port_prototype_functions=[function(1, 1, "ReadTemperature", status=PENDING)],
+        )
+        report = ReportBuilder().build(snapshot, GenerationResult(), _config())
+        assert "Port Prototype Function: ReadTemperature" in report
+
+    @pytest.mark.parametrize(
+        ("snapshot_rows", "parent_label"),
+        [
+            (
+                {
+                    "type_definitions": [type_definition(10, "Struct", status=PENDING)],
+                    "struct_elements": [struct_element(1, 10, "field", 1)],
+                },
+                "Struct",
+            ),
+            (
+                {
+                    "port_interfaces": [port_interface(20, "Interface", status=PENDING)],
+                    "interface_data_elements": [data_element(1, 20, "signal", 1)],
+                },
+                "Interface",
+            ),
+            (
+                {
+                    "client_server_operations": [
+                        operation(30, 20, "Operation", 1, status=PENDING)
+                    ],
+                    "operation_arguments": [argument(1, 30, "value", 1)],
+                },
+                "Operation",
+            ),
+            (
+                {
+                    "port_prototypes": [port_prototype(40, "Prototype", status=PENDING)],
+                    "port_prototype_functions": [function(1, 40)],
+                },
+                "Prototype",
+            ),
+            (
+                {
+                    "port_connections": [port_connection(50, "Connection", status=PENDING)],
+                    "port_connection_members": [connection_member(1, 50, 40, 1)],
+                },
+                "Connection",
+            ),
+        ],
+    )
+    def test_each_parent_relationship_is_summarized(
+        self, make_snapshot: Any, snapshot_rows: dict[str, list[Any]], parent_label: str
+    ) -> None:
+        """LLD-04 §7.3: every designed parent relation contributes to the count."""
+        report = ReportBuilder().build(
+            make_snapshot(**snapshot_rows), GenerationResult(), _config()
+        )
+        parent_row = next(line for line in report.splitlines() if parent_label in line)
+        assert "children=1 (approved=1)" in parent_row
 
     def test_section_g_groups_by_issue_type_in_order(self, make_snapshot: Any) -> None:
         """LLD-04 §7.5: five issue types in a fixed group order."""

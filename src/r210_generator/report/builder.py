@@ -46,9 +46,7 @@ class ReportBuilder:
             lines.extend([f"Generated: {config.generated_at}", ""])
 
         lines.extend(self._summary(snapshot, result))
-        lines.extend(
-            section_approved_generated(result.exported_artifacts, result.exportable_trees)
-        )
+        lines.extend(section_approved_generated(result.exported_artifacts))
         lines.extend(section_fk_validation_errors(result.r210_errors))
         lines.extend(section_approved_excluded(result.r210_warnings))
         for status, letter, title in STATUS_SECTIONS:

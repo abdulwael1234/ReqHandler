@@ -30,7 +30,7 @@ produce a review report.
 | Gemini CLI Skill | LLD-03 | 54 stub lines | Complete — written against the implemented surface |
 | MCP stdio adapter | LLD-02 §9 | Never executed | Executed, corrected, tested |
 
-**Test result:** 846 passing (652 at the start of the phase). `ruff check src
+**Test result:** 865 passing (652 at the start of the phase). `ruff check src
 tests` and `mypy src` (strict) clean.
 
 ---
@@ -40,9 +40,9 @@ tests` and `mypy src` (strict) clean.
 | SRS | Requirement (abridged) | Where | Verified by |
 |---|---|---|---|
 | SRS-090 | Operation to request generation | `tools/generation.py` | `test_assembly.py::TestTriggerGeneration` |
-| SRS-101 | Byte-identical output — **review report only**; R210 output verified with synthetic templates, see §5 | `r210/file_writer.py` | `test_file_writer.py`, `test_generator.py::TestDeterminism` |
+| SRS-101 | Byte-identical output — **review report only**; R210 output verified with synthetic templates, see `docs/PHASE5_IMPLEMENTED_REQUIREMENTS.md` §2 | `r210/file_writer.py` | `test_file_writer.py`, `test_generator.py::TestDeterminism`, `test_cli.py::TestGenerationCommands` |
 | SRS-102 | Validate approved records; exclude FK-invalid ones | `validator.py` | `test_validator.py::TestForeignKeyValidation` |
-| SRS-104 | Review report, producible independently, eight sections | `report/` | `test_report.py` |
+| SRS-104 | Review report, producible independently, eight specified sections plus FK-validation detail | `report/` | `test_report.py`, `test_generator.py::TestReportOnly`, `test_cli.py::TestGenerationCommands` |
 | SRS-104a | Parent exported only when all non-rejected children approved | `validator.py` | `test_validator.py::TestChildApproval` |
 | SRS-092a | Rejected children excluded from evaluation and output | `validator.py`, `r210/renderer.py` | `test_validator.py`, `test_renderer.py` |
 | SRS-108 | Deterministic child ordering | `loader.py`, `r210/renderer.py` | `test_loader.py`, `test_renderer.py::TestChildOrdering` |
@@ -66,7 +66,7 @@ metamodel mapping), SRS-073 (port connection rendering content).
 | # | Criterion | Status |
 |---|---|---|
 | 1 | §3.1–§3.5 implemented | **Met** |
-| 2 | `pytest` passes | **Met** — 846 passing |
+| 2 | `pytest` passes | **Met** — 865 passing |
 | 3 | `ruff check src tests`, `mypy src` clean | **Met** |
 | 4 | `r210-review` runs end to end on a synthetic database | **Met** — §4 |
 | 5 | Report byte-identical across two runs; §5.4 decided | **Met** — DEV-46 |
@@ -220,3 +220,4 @@ New test packages:
 | Version | Date | Changes |
 |---|---|---|
 | 1.0 | 2026-08-15 | Initial record. Phase 4 complete; all eight `PHASE4_SCOPE.md` §7 criteria met, including `run()` verification, which the scope had marked conditional. |
+| 1.1 | 2026-08-15 | Post-review acceptance expansion to 865 passing tests, covering report-only SRS-104 semantics, child summaries across every parent relationship, generated-file manifests, CLI determinism, and Phase 5 configuration failure. Corrected section (a), completed LLD-04 §7.3 child summaries, and fixed `PortPrototypeFunction` labels. |

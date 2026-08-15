@@ -73,7 +73,7 @@ more; §3 records what each component now contains and what is still owed.
 | Deterministic Generator | LLD-04 | **Complete except R210 template bodies** (Phase 4 + Phase 5 framework) — see §3.2 |
 | Local Review CLI | LLD-06 | **Complete** (Phase 4) — see §3.3 |
 
-**Current result (2026-08-15):** 846 tests passing, including the 60-case
+**Current result (2026-08-15):** 865 tests passing, including the 60-case
 independent acceptance suite. `ruff check src tests` and `mypy src` (strict)
 are clean.
 
@@ -318,3 +318,4 @@ unblock it, because none of it is now a development question.
 | 1.1     | 2026-08-13 | Added §1A, the authoritative phase map, retiring the original eight-phase numbering. Recorded the acceptance defects (§4.3), corrected the MCP Server status to "implemented with known acceptance defects", updated the current test result to 650/639/11, corrected the review report to eight sections and the CLI to twelve commands. |
 | 1.2     | 2026-08-13 | Acceptance defects D-01–D-04 fixed; MCP Server back to Complete; current result 652 passing. |
 | 1.3     | 2026-08-15 | Phase 4 complete and the Phase 5 framework delivered (DEV-39). Sections 3.1-3.3 rewritten from "still to build" to component status; §4.1 closed - `run()` was executed for the first time, found broken against `mcp` 2.x, corrected and verified (DEV-50). Added §3A for open work Phase 4 introduced, and rewrote §7 by who can unblock each item rather than by build order. Current result 846 passing. |
+| 1.4     | 2026-08-15 | Expanded Phase 4/5 acceptance coverage after documentation review. Corrected SRS-104 report-only semantics and completed report child summaries; current result 865 passing. |

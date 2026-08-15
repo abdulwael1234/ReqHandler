@@ -159,6 +159,18 @@ class TestGenerationCommands:
         assert (tmp_path / "review_report.md").exists()
         assert "report_file" in capsys.readouterr().out
 
+    def test_report_command_is_byte_identical_across_runs(
+        self, seeded: Seeded, tmp_path: Any
+    ) -> None:
+        """SRS-101: the CLI does not inject wall-clock data into reports."""
+        args = ["--db", seeded.db_path, "report", "--output", str(tmp_path)]
+        assert cli.run(args) == 0
+        first = (tmp_path / "review_report.md").read_bytes()
+        assert cli.run(args) == 0
+        second = (tmp_path / "review_report.md").read_bytes()
+        assert first == second
+        assert b"Generated:" not in second
+
     def test_generate_reports_unmet_criteria(
         self, seeded: Seeded, tmp_path: Any, capsys: pytest.CaptureFixture[str]
     ) -> None:
@@ -167,6 +179,27 @@ class TestGenerationCommands:
                         "--output", str(tmp_path)])
         assert code == 1
         assert "SRS-019(c)" in capsys.readouterr().out
+
+    def test_unconfigured_both_mode_still_preserves_the_review_report(
+        self, seeded: Seeded, tmp_path: Any, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """SRS-104: Phase 5 configuration failure must not suppress the report."""
+        code = cli.run(
+            [
+                "--db",
+                seeded.db_path,
+                "generate",
+                "--mode",
+                "both",
+                "--output",
+                str(tmp_path),
+            ]
+        )
+        assert code == 1
+        assert (tmp_path / "review_report.md").exists()
+        output = capsys.readouterr().out
+        for criterion in ("SRS-019(c)", "SRS-019(d)", "SRS-019", "SRS-064"):
+            assert criterion in output
 
     def test_generate_defaults_to_an_explicit_output_dir(self) -> None:
         """DEV-48: the CLI states its default rather than inheriting one."""
